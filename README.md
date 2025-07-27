@@ -1,6 +1,12 @@
 # 🧠 NeuroScreen – AI for Early Parkinson’s Risk Detection  
 ⚡ Self-screen at home. 🔒 HIPAA-conscious. 📄 Auto PDF Reports.
 
+<p align="center">
+  <img src="./brain_synapse.jpg" width="600"/>
+  <br>
+  <em>🧠 NeuroScreen inspiration – Dopaminergic signaling and motor-cognitive interfaces in Parkinson’s Disease</em>
+</p>
+
 **NeuroScreen** is a self-administered, AI-powered screening tool that predicts early Parkinson’s risk using clinically validated behavioral and motor survey inputs — no wearables, labs, or hospital visits required.
 
 It combines **clinical-grade survey logic**, **real-time ML inference**, and **explainable AI** into one seamless Streamlit interface.
