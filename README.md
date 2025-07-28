@@ -2,7 +2,7 @@
 ⚡ Self-screen at home. 🔒 HIPAA-conscious. 📄 Auto PDF Reports.
 
 <p align="center">
-  <img src="./brain_synapse.jpg" width="600"/>
+  <img src="./AI.jpg" width="600"/>
   <br>
   <em>🧠 NeuroScreen inspiration – Dopaminergic signaling and motor-cognitive interfaces in Parkinson’s Disease</em>
 </p>
