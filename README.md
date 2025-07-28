@@ -1,4 +1,4 @@
-# 🧠 NeuroScreen – AI for Early Parkinson’s Risk Detection  
+#  NeuroScreen – AI for Early Parkinson’s Risk Detection  
 ⚡ Self-screen at home. 🔒 HIPAA-conscious. 📄 Auto PDF Reports.
 
 <p align="center">
