@@ -1,0 +1,25 @@
+{
+  "data": "PPMI_clinical_labeled.csv",
+  "idcol": "PATNO",
+  "label": "EarlyCogImp",
+  "features": {
+    "upsit_proxy": "upsitorder",
+    "rbd_proxy": "RBD_SOURCE_OL",
+    "urinary_proxy": "NP1URIN_OL",
+    "dizzy_proxy": "MCAVIGIL",
+    "memory_proxy": "DIFFRECALL",
+    "age": "AGE_AT_VISIT",
+    "sex": "SEX"
+  },
+  "dtypes": {
+    "PATNO": "int64",
+    "EarlyCogImp": "float64",
+    "upsitorder": "float64",
+    "RBD_SOURCE_OL": "float64",
+    "NP1URIN_OL": "float64",
+    "MCAVIGIL": "float64",
+    "DIFFRECALL": "float64",
+    "AGE_AT_VISIT": "float64",
+    "SEX": "float64"
+  }
+}

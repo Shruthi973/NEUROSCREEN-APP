@@ -1,0 +1,35 @@
+{
+  "data": "FoxInsight.csv",
+  "idcol": "fox_insight_id",
+  "label": "CurrPDDiag",
+  "features": [
+    "ImpactMoveHyposmia",
+    "ImpactMoveConstipation",
+    "Anxiety",
+    "ImpactMoveUrinary",
+    "ImpactMoveTremor",
+    "ImpactThinkBodyFatigue",
+    "ImpactThinkDizzy",
+    "ImpactMoveImbalance",
+    "ImpactThinkMemory",
+    "MoveSaliva",
+    "age",
+    "Sex"
+  ],
+  "dtypes": {
+    "fox_insight_id": "object",
+    "CurrPDDiag": "float64",
+    "ImpactMoveHyposmia": "float64",
+    "ImpactMoveConstipation": "float64",
+    "Anxiety": "float64",
+    "ImpactMoveUrinary": "float64",
+    "ImpactMoveTremor": "float64",
+    "ImpactThinkBodyFatigue": "float64",
+    "ImpactThinkDizzy": "float64",
+    "ImpactMoveImbalance": "float64",
+    "ImpactThinkMemory": "float64",
+    "MoveSaliva": "float64",
+    "age": "float64",
+    "Sex": "float64"
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "data": "ShortenedProtocolIde_DATA_2025-07-25_1534.csv",
+  "label": "screening_pd_dx",
+  "min_nonnull": 0.6,
+  "chosen_features": [
+    "record_id",
+    "today_date",
+    "mdsupdrs_3_hy",
+    "pd_interview5",
+    "disease_duration",
+    "mdsupdrs_3_a",
+    "mdsupdrs_3neck",
+    "first_symptom_2",
+    "first_symptom",
+    "mdsupdrs_2_4"
+  ],
+  "num_cols": [
+    "mdsupdrs_3_hy",
+    "mdsupdrs_3_a",
+    "mdsupdrs_3neck",
+    "mdsupdrs_2_4"
+  ],
+  "cat_cols": [
+    "record_id",
+    "today_date",
+    "pd_interview5",
+    "disease_duration",
+    "first_symptom_2",
+    "first_symptom"
+  ],
+  "leak_guard": [
+    "diagnos",
+    "\\bpd[_ ]?dx\\b",
+    "parkinson",
+    "provider",
+    "mds[_-]?updrs.*(total|sum)",
+    "updrs.*(total|sum)",
+    "part[_ ]?iii\\b",
+    "part[_ ]?iv\\b",
+    "part[_ ]?3\\b",
+    "part[_ ]?4\\b",
+    "\\bmoca.*total\\b",
+    "\\bmcatot\\b",
+    "\\bhy.*yahr\\b",
+    "\\bh.y\\b"
+  ],
+  "allow_mds_regex": "^(mdsupdrs_1_|mdsupdrs_2_|mds[_-]?updrs[_-]?part[_ ]?(i|ii)_)",
+  "cv": {
+    "splits": 10,
+    "repeats": 5
+  }
+}
