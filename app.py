@@ -1,8 +1,6 @@
 # app.py — NeuroScreen (Parkinson's screening prototype)
-# Single-page UI, no layer selector; runs L1/L2/L3 if models exist, then merges probabilities.
-# Safe fallbacks so deployment never breaks if a model file is missing or incompatible.
-
-import os, io, json, warnings
+# Wizard UI (9 pages + sidebar) + combined 3-layer prediction + PDF export
+import os, json, warnings
 from typing import Any, Dict, List, Tuple
 import numpy as np
 import pandas as pd
@@ -13,16 +11,14 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # ------------------------- App frame -------------------------
 st.set_page_config(page_title="NeuroScreen – Parkinson's Risk Prototype", layout="wide")
 
-# Title + caption
 st.title("🧠 NeuroScreen – Parkinson's Risk Prototype")
 st.caption("Tip: You can use this offline; nothing leaves your device.")
 
-# Optional welcome image (safe for older Streamlit)
 IMG_PATH = os.path.join(os.path.dirname(__file__), "AI.jpg")
 if os.path.exists(IMG_PATH):
     c_left, c_mid, c_right = st.columns([1, 2, 1])
     with c_mid:
-        st.image(IMG_PATH)  # avoid use_container_width for older Streamlit
+        st.image(IMG_PATH)
 
 # HIPAA box (black)
 st.markdown(
@@ -35,329 +31,349 @@ st.markdown(
         border:1px solid #232a35;
         ">
       🔒 <b>HIPAA notice:</b> This prototype does not store or transmit your data.
-      It is for educational use only and not a diagnostic device.
+      It is for educational use only.
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# ------------------------- Safe model loader + dummy -------------------------
+# ------------------------- Safe model loader -------------------------
 class DummyModel:
-    """
-    Heuristic model so the app never crashes.
-    Produces non-constant probabilities using key motor, non-motor, and cognitive signals.
-    """
+    """Fallback so the app never crashes; only used if a .pkl can't be loaded."""
     def predict_proba(self, X):
         if not isinstance(X, pd.DataFrame):
             X = pd.DataFrame(X)
-
+        # very light heuristic so it's NOT always 0.5
         def num(col, default=0.0):
-            # Numeric vector for a feature; returns default if missing
             try:
                 return pd.to_numeric(X.get(col, default), errors="coerce").fillna(default).astype(float).values
             except Exception:
                 return np.full(len(X), default, dtype=float)
 
         s = np.zeros(len(X), dtype=float)
-
-        # --- Motor (0–4 style sliders / scales) ---
-        s += 0.7 * num("tremor_severity")
-        s += 0.7 * num("rigidity")
-        s += 0.7 * num("bradykinesia")
+        # Motor-ish proxies
         s += 0.8 * num("gait_difficulty")
-        s += 0.5 * (num("freezing_episodes") > 0).astype(float)
-        # tapping lower is worse
-        s += 0.4 * np.maximum(0, 20 - num("finger_taps_left")) / 20.0
-        s += 0.4 * np.maximum(0, 20 - num("finger_taps_right")) / 20.0
-        # TUG slower is worse
-        s += 0.4 * np.maximum(0, num("tug_seconds") - 10) / 20.0
-
-        # --- Cognitive (simple proxies) ---
-        s += 0.6 * (5 - np.clip(num("serial7_correct"), 0, 5))
-        s += 0.6 * (5 - np.clip(num("delayed_recall"), 0, 5))
-        s += 0.4 * (20 - np.clip(num("animals_60s"), 0, 20)) / 20.0
-
-        # --- Non-motor / autonomic ---
+        s += 0.7 * num("tremor_severity")
+        s += 0.6 * num("bradykinesia")
         s += 0.5 * (num("reduced_smell") > 0).astype(float)
-        s += 0.3 * (num("rbd_like") > 0).astype(float)
-        s += 0.2 * (num("constipation") > 0).astype(float)
-        s += 0.2 * num("daytime_sleepiness") / 24.0
-        s += 0.2 * num("orthostatic_lightheaded_weekly") / 3.0
-
-        # Mild age effect
-        s += 0.1 * np.maximum(0, num("age") - 60) / 30.0
-
-        # Normalize → sigmoid
+        s += 0.4 * (num("rbd_like") > 0).astype(float)
+        s += 0.3 * (num("constipation") > 0).astype(float)
+        s += 0.3 * (5 - np.clip(num("serial7_correct"), 0, 5))
+        s += 0.3 * (5 - np.clip(num("delayed_recall"), 0, 5))
         z = (s - s.mean()) / (s.std() + 1e-6)
         p = 1 / (1 + np.exp(-z))
         p = np.clip(p, 0.02, 0.98)
         return np.c_[1 - p, p]
 
 def load_model(model_path: str):
-    """Try to load a joblib model; otherwise return DummyModel()."""
     try:
-        import joblib  # lazy import
+        import joblib
         if model_path and os.path.exists(model_path):
             return joblib.load(model_path)
     except Exception:
         pass
     return DummyModel()
 
-# Model file paths (env overrides supported)
+# Model artifact paths (env or defaults)
 L1_MODEL = os.environ.get("L1_MODEL", "model_layer1.pkl")
 L2_MODEL = os.environ.get("L2_MODEL", "model_layer2_ppmi.pkl")
 L3_MODEL = os.environ.get("L3_MODEL", "model_layer3.pkl")
 
-# Load all models once
 MODEL_L1 = load_model(L1_MODEL)
 MODEL_L2 = load_model(L2_MODEL)
 MODEL_L3 = load_model(L3_MODEL)
 
-# ------------------------- UI helpers (single page) -------------------------
-st.markdown("### Your Information")
+# ------------------------- Session & wizard state -------------------------
+PAGES = [
+    "Welcome / Consent",
+    "Demographics",
+    "Motor – Tremor / Rigidity / Gait",
+    "Motor – Dexterity / Tapping / TUG",
+    "Non-Motor – Smell / Sleep / Autonomic",
+    "Cognition – Serial 7s / Recall / Fluency",
+    "Mood / Fatigue / Dizziness",
+    "Safety & Daily Function",
+    "Review & Results",
+]
 
-with st.form("neuroscreen_form", clear_on_submit=False):
-    # Demographics
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        age = st.number_input("Age (years)", min_value=18, max_value=100, value=60, step=1)
-    with c2:
-        sex = st.selectbox("Sex assigned at birth", ["Female", "Male", "Prefer not to say"])
-    with c3:
-        rbd_like = st.selectbox("Dream enactment / acting out dreams (RBD-like)?", ["No", "Yes"])
+if "step" not in st.session_state:
+    st.session_state.step = 0
+if "answers" not in st.session_state:
+    st.session_state.answers = {}  # keep all your existing keys/labels intact
+if "history" not in st.session_state:
+    st.session_state.history = []  # for linear nav if you want it later
 
-    st.markdown("### Motor Function (self-estimated or simple tests)")
-    c4, c5, c6, c7 = st.columns(4)
-    with c4:
-        tremor_severity = st.slider("Tremor severity (0=none, 4=severe)", 0, 4, 1)
-    with c5:
-        rigidity = st.slider("Rigidity (0–4)", 0, 4, 1)
-    with c6:
-        bradykinesia = st.slider("Slowness of movement (0–4)", 0, 4, 1)
-    with c7:
-        gait_difficulty = st.slider("Gait/balance difficulty (0–4)", 0, 4, 1)
+# ------------------------- Helper: save answer safely -------------------------
+def put_answer(key: str, value: Any):
+    st.session_state.answers[key] = value
 
-    c8, c9, c10 = st.columns(3)
-    with c8:
-        freezing_episodes = st.selectbox("Freezing episodes?", ["No", "Yes"])
-    with c9:
-        finger_taps_left = st.number_input("Finger taps – left (0–20 in 10s)", 0, 40, 15)
-    with c10:
-        finger_taps_right = st.number_input("Finger taps – right (0–20 in 10s)", 0, 40, 15)
-
-    c11, c12 = st.columns(2)
-    with c11:
-        tug_seconds = st.number_input("TUG: Timed Up & Go (seconds)", min_value=0.0, max_value=120.0, value=12.0, step=0.5)
-    with c12:
-        reduced_smell = st.selectbox("Reduced sense of smell (hyposmia)?", ["No", "Yes"])
-
-    st.markdown("### Non-Motor & Autonomic")
-    c13, c14, c15 = st.columns(3)
-    with c13:
-        constipation = st.selectbox("Constipation (weekly)?", ["No", "Yes"])
-    with c14:
-        daytime_sleepiness = st.slider("Daytime sleepiness (0–24, higher=worse)", 0, 24, 8)
-    with c15:
-        orthostatic_lightheaded_weekly = st.slider("Lightheaded when standing (days/week)", 0, 7, 1)
-
-    st.markdown("### Cognitive Quick Checks")
-    c16, c17, c18 = st.columns(3)
-    with c16:
-        serial7_correct = st.slider("Serial 7s correct (0–5)", 0, 5, 4)
-    with c17:
-        delayed_recall = st.slider("Delayed word recall (0–5)", 0, 5, 4)
-    with c18:
-        animals_60s = st.slider("Animals named in 60s (0–20)", 0, 40, 14)
-
-    # Let user optionally add free-text notes (not used by model)
-    notes = st.text_area("Optional notes (not used by the model)", "")
-
-    submitted = st.form_submit_button("Run Screening")
-
-# Collect inputs into a row for models
-answers: Dict[str, Any] = {
-    "age": age,
-    "sex": sex,
-    "rbd_like": 1 if rbd_like == "Yes" else 0,
-    "tremor_severity": float(tremor_severity),
-    "rigidity": float(rigidity),
-    "bradykinesia": float(bradykinesia),
-    "gait_difficulty": float(gait_difficulty),
-    "freezing_episodes": 1 if freezing_episodes == "Yes" else 0,
-    "finger_taps_left": float(finger_taps_left),
-    "finger_taps_right": float(finger_taps_right),
-    "tug_seconds": float(tug_seconds),
-    "reduced_smell": 1 if reduced_smell == "Yes" else 0,
-    "constipation": 1 if constipation == "Yes" else 0,
-    "daytime_sleepiness": float(daytime_sleepiness),
-    "orthostatic_lightheaded_weekly": float(orthostatic_lightheaded_weekly),
-    "serial7_correct": float(serial7_correct),
-    "delayed_recall": float(delayed_recall),
-    "animals_60s": float(animals_60s),
-}
-X_user = pd.DataFrame([answers])
-
-# ------------------------- Prediction utils -------------------------
-def try_predict_proba(model, X: pd.DataFrame, layer_name: str) -> Tuple[float, str]:
+# ------------------------- Helper: combined prediction -------------------------
+def to_dataframe_for_models(answers: Dict[str, Any]) -> pd.DataFrame:
     """
-    Try model.predict_proba; if it fails (feature mismatch, etc.), fall back to DummyModel.
-    Returns (prob_PD, note).
+    Single-row DF that tries both: your existing keys AND model-preferred aliases.
+    DO NOT rename your inputs; just ensure any important model features map here.
     """
-    note = ""
-    try:
-        proba = model.predict_proba(X)
-        # Assume proba shape (n, 2) as [neg, pos]
-        p = float(proba[0, 1])
-        p = float(np.clip(p, 0.0, 1.0))
-        return p, note
-    except Exception as e:
-        # Use dummy if real model fails; add a short note for transparency (but not noisy)
-        dm = DummyModel()
-        p = float(dm.predict_proba(X)[0, 1])
-        note = f"{layer_name}: fallback heuristic used (model incompatible with current inputs)."
-        return p, note
+    a = answers
+    def g(k, default=None): return a.get(k, default)
 
-def merge_probs(probs: List[float], weights: List[float]) -> float:
-    """Weighted average of available layer probabilities."""
-    probs = np.array(probs, dtype=float)
-    weights = np.array(weights, dtype=float)
-    if len(probs) == 0 or np.all(weights <= 0):
-        return 0.5
-    w = weights / (weights.sum() + 1e-9)
-    return float(np.clip((probs * w).sum(), 0.0, 1.0))
+    row = {
+        # common motor fields you already use (keep your labels; keys can be same)
+        "tremor_severity": g("tremor_severity", g("tremor (0-4)", 0)),
+        "rigidity": g("rigidity", g("rigidity (0-4)", 0)),
+        "bradykinesia": g("bradykinesia", g("slowness (0-4)", 0)),
+        "gait_difficulty": g("gait_difficulty", g("gait (0-4)", 0)),
+        "freezing_episodes": g("freezing_episodes", g("freezing yes/no", 0)),
+        "finger_taps_left": g("finger_taps_left", g("finger taps left (0-20)", 20)),
+        "finger_taps_right": g("finger_taps_right", g("finger taps right (0-20)", 20)),
+        "tug_seconds": g("tug_seconds", g("timed up and go (sec)", 10)),
+        # cognition
+        "serial7_correct": g("serial7_correct", g("serial 7s correct (0-5)", 5)),
+        "delayed_recall": g("delayed_recall", g("delayed recall (0-5)", 5)),
+        "animals_60s": g("animals_60s", g("animal fluency in 60s", 20)),
+        # non-motor
+        "reduced_smell": g("reduced_smell", g("smell loss yes/no", 0)),
+        "rbd_like": g("rbd_like", g("dream enactment yes/no", 0)),
+        "constipation": g("constipation", g("constipation yes/no", 0)),
+        "daytime_sleepiness": g("daytime_sleepiness", g("daytime sleepiness (0-24)", 0)),
+        "orthostatic_lightheaded_weekly": g("orthostatic_lightheaded_weekly", g("orthostatic lightheaded/week", 0)),
+        # demographics
+        "age": g("age", g("Age", None)),
+        "sex": g("sex", g("Sex", None)),
+    }
+    return pd.DataFrame([row])
 
-def tier_from_prob(p: float) -> Tuple[str, str]:
-    """Map probability to tier + short message."""
-    if p < 0.33:
-        return "Low", "Your responses suggest a lower likelihood on this screening."
-    elif p < 0.66:
-        return "Moderate", "Some features are present; consider monitoring or discussing with a clinician."
-    else:
-        return "Elevated", "Multiple risk features are present; consider a professional evaluation."
+def combined_probability(answers: Dict[str, Any]) -> Tuple[float, Dict[str, float], bool]:
+    """
+    Returns (p_final, per_layer_probs, used_dummy)
+    - averages only across the models that successfully produce a prob
+    - never forces 0.50 unless NO model provided a prob
+    """
+    X = to_dataframe_for_models(answers)
+    per = {}
+    used_dummy = False
 
-# ------------------------- Run & display -------------------------
-if submitted:
-    st.markdown("---")
-    st.subheader("Screening Results")
+    for name, mdl in [("Layer 1", MODEL_L1), ("Layer 2", MODEL_L2), ("Layer 3", MODEL_L3)]:
+        try:
+            proba = mdl.predict_proba(X)
+            p1 = float(np.clip(proba[0, 1], 0.001, 0.999))
+            per[name] = p1
+            if isinstance(mdl, DummyModel):
+                used_dummy = True
+        except Exception:
+            # if model fails hard, we skip it
+            continue
 
-    # Run each layer (if model file exists, we already loaded whatever available)
-    layer_probs: List[Tuple[str, float]] = []
-    layer_notes: List[str] = []
+    if len(per) == 0:
+        # nothing available → neutral
+        return 0.50, {}, True
 
-    # Weights: we can emphasize L3 (clinic-style) a bit; otherwise equal on availability
-    base_weights = {"L1": 1.0, "L2": 1.0, "L3": 1.2}
+    # simple mean; replace with your learned merger weights if you have them
+    p_final = float(np.mean(list(per.values())))
+    return p_final, per, used_dummy
 
-    # L1
-    p1, n1 = try_predict_proba(MODEL_L1, X_user, "L1")
-    layer_probs.append(("L1 (Fox Insight-style)", p1))
-    if n1:
-        layer_notes.append(n1)
-
-    # L2
-    p2, n2 = try_predict_proba(MODEL_L2, X_user, "L2")
-    layer_probs.append(("L2 (PPMI-style)", p2))
-    if n2:
-        layer_notes.append(n2)
-
-    # L3
-    p3, n3 = try_predict_proba(MODEL_L3, X_user, "L3")
-    layer_probs.append(("L3 (Short clinical protocol)", p3))
-    if n3:
-        layer_notes.append(n3)
-
-    # Determine weights based on which layers produced a probability (always 3 here, but keep safe)
-    labels = [lp[0] for lp in layer_probs]
-    probs_only = [lp[1] for lp in layer_probs]
-    weights = []
-    for label in labels:
-        if "L1" in label:
-            weights.append(base_weights["L1"])
-        elif "L2" in label:
-            weights.append(base_weights["L2"])
-        elif "L3" in label:
-            weights.append(base_weights["L3"])
-        else:
-            weights.append(1.0)
-
-    p_final = merge_probs(probs_only, weights)
-    tier, msg = tier_from_prob(p_final)
-
-    # Display
-    cA, cB = st.columns([1, 1])
-    with cA:
-        st.metric("Final merged risk (screening)", f"{p_final*100:.1f}%")
-        st.write(f"**Tier:** {tier}")
-        st.caption(msg)
-
-    with cB:
-        st.write("**Per-layer estimates**")
-        for (label, p) in layer_probs:
-            st.write(f"- {label}: **{p*100:.1f}%**")
-        if layer_notes:
-            st.caption(" • ".join(layer_notes))
-
-    # Show the exact inputs back to the user
-    with st.expander("Show the answers you entered"):
-        st.json(answers, expanded=False)
-
-    # ------------------------- PDF export -------------------------
+# ------------------------- PDF export -------------------------
+def export_pdf(answers: Dict[str, Any], p_final: float, per_layer: Dict[str, float]) -> bytes:
     try:
         from fpdf import FPDF
+    except Exception:
+        return b""
 
-        def build_pdf(answers: Dict[str, Any], layer_probs: List[Tuple[str, float]], p_final: float, tier: str, notes: List[str]) -> bytes:
-            pdf = FPDF()
-            pdf.set_auto_page_break(auto=True, margin=12)
-            pdf.add_page()
-            pdf.set_font("Arial", "B", 16)
-            pdf.cell(0, 10, "NeuroScreen – Parkinson's Risk Prototype", ln=1)
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, "NeuroScreen – Summary", ln=1)
 
-            pdf.set_font("Arial", "", 12)
-            pdf.multi_cell(0, 8, "This report is for educational use only and is not a diagnosis. No data is stored.")
-            pdf.ln(2)
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 8, f"Final combined risk: {round(p_final*100, 1)}%", ln=1)
+    for k, v in per_layer.items():
+        pdf.cell(0, 8, f"{k}: {round(v*100,1)}%", ln=1)
 
-            # Final
-            pdf.set_font("Arial", "B", 14)
-            pdf.cell(0, 8, f"Final merged risk: {p_final*100:.1f}%  (Tier: {tier})", ln=1)
-            pdf.set_font("Arial", "", 12)
+    pdf.ln(4)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Your responses:", ln=1)
 
-            # Layers
-            pdf.ln(2)
-            pdf.set_font("Arial", "B", 12)
-            pdf.cell(0, 8, "Per-layer estimates", ln=1)
-            pdf.set_font("Arial", "", 12)
-            for label, p in layer_probs:
-                pdf.cell(0, 8, f"- {label}: {p*100:.1f}%", ln=1)
+    pdf.set_font("Arial", "", 11)
+    for k, v in answers.items():
+        txt = f"- {k}: {v}"
+        pdf.multi_cell(0, 6, txt)
 
-            if notes:
-                pdf.ln(2)
-                pdf.set_font("Arial", "I", 11)
-                pdf.multi_cell(0, 6, "Notes: " + " • ".join(notes))
+    out = pdf.output(dest="S").encode("latin1", "ignore")
+    return out
 
-            # Answers
-            pdf.ln(3)
-            pdf.set_font("Arial", "B", 12)
-            pdf.cell(0, 8, "Your answers", ln=1)
-            pdf.set_font("Arial", "", 11)
-            for k, v in answers.items():
-                pdf.cell(0, 6, f"{k}: {v}", ln=1)
+# ==========================
+# WIZARD PAGE FUNCTIONS
+# Paste your existing question blocks into the marked spots
+# ==========================
 
-            buf = io.BytesIO()
-            pdf.output(buf)
-            return buf.getvalue()
+def page_welcome():
+    st.subheader("Welcome")
+    st.write("Please proceed through the steps. Use the sidebar to navigate, or Next/Back.")
+    # >>> If you had any consent checkbox or intro text, paste it here (unchanged).
+    # Example:
+    agree = st.checkbox("I understand this is a screening prototype and not a diagnosis.")
+    if agree:
+        put_answer("consent_ack", True)
 
-        pdf_bytes = build_pdf(answers, layer_probs, p_final, tier, layer_notes)
-        st.download_button(
-            label="⬇️ Download screening summary (PDF)",
-            data=pdf_bytes,
-            file_name="neuroscreen_summary.pdf",
-            mime="application/pdf",
-        )
-    except Exception as e:
-        st.caption("PDF export unavailable (fpdf not found or render error).")
+def page_demographics():
+    st.subheader("Demographics")
+    # >>> PASTE YOUR EXISTING DEMOGRAPHIC QUESTIONS HERE (unchanged labels/help).
+    age = st.number_input("Age", min_value=0, max_value=120, value=int(st.session_state.answers.get("Age", 60) or 60))
+    sex = st.selectbox("Sex", ["", "Male", "Female", "Other"], index= ["","Male","Female","Other"].index(st.session_state.answers.get("Sex","") if st.session_state.answers.get("Sex","") in ["","Male","Female","Other"] else ""))
+    put_answer("Age", age)
+    put_answer("Sex", sex.lower() if sex else "")
 
-# ------------------------- Footer -------------------------
-st.markdown("---")
-st.caption(
-    "NeuroScreen is a research prototype. Results are estimates based on questionnaire-style inputs; "
-    "consult a clinician for diagnosis or medical advice."
-)
+def page_motor_1():
+    st.subheader("Motor – Tremor / Rigidity / Gait")
+    # >>> PASTE YOUR EXISTING PAGE CONTENT (unchanged). Keep your hints/helpers as-is.
+    tremor = st.slider("tremor (0-4)", 0, 4, int(st.session_state.answers.get("tremor (0-4)", 0) or 0), help="0=None, 4=Severe")
+    rigidity = st.slider("rigidity (0-4)", 0, 4, int(st.session_state.answers.get("rigidity (0-4)", 0) or 0))
+    brady = st.slider("slowness (0-4)", 0, 4, int(st.session_state.answers.get("slowness (0-4)", 0) or 0))
+    gait = st.slider("gait (0-4)", 0, 4, int(st.session_state.answers.get("gait (0-4)", 0) or 0))
+    freeze = st.selectbox("freezing yes/no", ["No", "Yes"], index=1 if st.session_state.answers.get("freezing yes/no","No")=="Yes" else 0)
+
+    put_answer("tremor (0-4)", tremor); put_answer("rigidity (0-4)", rigidity)
+    put_answer("slowness (0-4)", brady); put_answer("gait (0-4)", gait)
+    put_answer("freezing yes/no", 1 if freeze=="Yes" else 0)
+
+    # map to general keys too (so models can find them without renaming your labels)
+    put_answer("tremor_severity", tremor)
+    put_answer("rigidity", rigidity)
+    put_answer("bradykinesia", brady)
+    put_answer("gait_difficulty", gait)
+    put_answer("freezing_episodes", 1 if freeze=="Yes" else 0)
+
+def page_motor_2():
+    st.subheader("Motor – Dexterity / Tapping / TUG")
+    # >>> PASTE your exact inputs here
+    taps_l = st.number_input("finger taps left (0-20)", min_value=0, max_value=20, value=int(st.session_state.answers.get("finger taps left (0-20)", 20) or 20))
+    taps_r = st.number_input("finger taps right (0-20)", min_value=0, max_value=20, value=int(st.session_state.answers.get("finger taps right (0-20)", 20) or 20))
+    tug = st.number_input("timed up and go (sec)", min_value=0.0, max_value=60.0, value=float(st.session_state.answers.get("timed up and go (sec)", 10.0) or 10.0), step=0.1)
+
+    put_answer("finger taps left (0-20)", taps_l)
+    put_answer("finger taps right (0-20)", taps_r)
+    put_answer("timed up and go (sec)", tug)
+
+    put_answer("finger_taps_left", taps_l)
+    put_answer("finger_taps_right", taps_r)
+    put_answer("tug_seconds", tug)
+
+def page_nonmotor():
+    st.subheader("Non-Motor – Smell / Sleep / Autonomic")
+    # >>> Keep your exact labels & help
+    smell = st.selectbox("smell loss yes/no", ["No", "Yes"], index=1 if st.session_state.answers.get("smell loss yes/no","No")=="Yes" else 0)
+    rbd = st.selectbox("dream enactment yes/no", ["No", "Yes"], index=1 if st.session_state.answers.get("dream enactment yes/no","No")=="Yes" else 0)
+    constip = st.selectbox("constipation yes/no", ["No", "Yes"], index=1 if st.session_state.answers.get("constipation yes/no","No")=="Yes" else 0)
+    sleepiness = st.slider("daytime sleepiness (0-24)", 0, 24, int(st.session_state.answers.get("daytime sleepiness (0-24)", 0) or 0))
+    ortho = st.slider("orthostatic lightheaded/week", 0, 3, int(st.session_state.answers.get("orthostatic lightheaded/week", 0) or 0))
+
+    put_answer("smell loss yes/no", smell)
+    put_answer("dream enactment yes/no", rbd)
+    put_answer("constipation yes/no", constip)
+    put_answer("daytime sleepiness (0-24)", sleepiness)
+    put_answer("orthostatic lightheaded/week", ortho)
+
+    put_answer("reduced_smell", 1 if smell=="Yes" else 0)
+    put_answer("rbd_like", 1 if rbd=="Yes" else 0)
+    put_answer("constipation", 1 if constip=="Yes" else 0)
+    put_answer("daytime_sleepiness", sleepiness)
+    put_answer("orthostatic_lightheaded_weekly", ortho)
+
+def page_cognition():
+    st.subheader("Cognition – Serial 7s / Recall / Fluency")
+    # >>> your exact cognition inputs go here
+    s7 = st.slider("serial 7s correct (0-5)", 0, 5, int(st.session_state.answers.get("serial 7s correct (0-5)", 5) or 5))
+    recall = st.slider("delayed recall (0-5)", 0, 5, int(st.session_state.answers.get("delayed recall (0-5)", 5) or 5))
+    animals = st.slider("animal fluency in 60s", 0, 40, int(st.session_state.answers.get("animal fluency in 60s", 20) or 20))
+
+    put_answer("serial 7s correct (0-5)", s7)
+    put_answer("delayed recall (0-5)", recall)
+    put_answer("animal fluency in 60s", animals)
+
+    put_answer("serial7_correct", s7)
+    put_answer("delayed_recall", recall)
+    put_answer("animals_60s", animals)
+
+def page_mood():
+    st.subheader("Mood / Fatigue / Dizziness")
+    # >>> paste your mood/fatigue/dizziness items here, unchanged
+    fatigue = st.slider("fatigue (0-4)", 0, 4, int(st.session_state.answers.get("fatigue (0-4)", 0) or 0))
+    dizzy = st.slider("dizziness/imbalance (0-4)", 0, 4, int(st.session_state.answers.get("dizziness/imbalance (0-4)", 0) or 0))
+    put_answer("fatigue (0-4)", fatigue)
+    put_answer("dizziness/imbalance (0-4)", dizzy)
+
+def page_function():
+    st.subheader("Safety & Daily Function")
+    # >>> paste your ADL/safety items here (unchanged)
+    falls = st.selectbox("any falls last 6 months?", ["No", "Yes"], index=1 if st.session_state.answers.get("any falls last 6 months?","No")=="Yes" else 0)
+    put_answer("any falls last 6 months?", falls)
+
+def page_review_results():
+    st.subheader("Review & Results")
+
+    st.write("### Your answers (review)")
+    for k, v in st.session_state.answers.items():
+        st.write(f"- **{k}**: {v}")
+
+    st.write("---")
+    if st.button("Compute combined risk"):
+        p_final, per_layer, used_dummy = combined_probability(st.session_state.answers)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric("Final combined risk", f"{round(p_final*100,1)}%")
+        with c2:
+            if per_layer:
+                st.write("Per-layer probabilities:")
+                for nm, pv in per_layer.items():
+                    st.write(f"- {nm}: **{round(pv*100,1)}%**")
+
+        if used_dummy:
+            st.info("Note: One or more model files were unavailable, so a safe fallback model was used for that layer.")
+
+        # PDF export
+        pdf_bytes = export_pdf(st.session_state.answers, p_final, per_layer)
+        if pdf_bytes:
+            st.download_button(
+                "Download PDF summary",
+                data=pdf_bytes,
+                file_name="NeuroScreen_Summary.pdf",
+                mime="application/pdf",
+            )
+
+# Map index → page function
+PAGE_FUNCS = [
+    page_welcome,
+    page_demographics,
+    page_motor_1,
+    page_motor_2,
+    page_nonmotor,
+    page_cognition,
+    page_mood,
+    page_function,
+    page_review_results,
+]
+
+# ------------------------- Sidebar navigation -------------------------
+with st.sidebar:
+    st.header("📋 Steps")
+    # radio allows jumping; shows all “pages” like before
+    st.session_state.step = st.radio(
+        "Navigate",
+        options=list(range(len(PAGES))),
+        format_func=lambda i: PAGES[i],
+        index=st.session_state.step,
+    )
+
+    st.markdown("---")
+    colA, colB, colC = st.columns([1,1,1])
+    with colA:
+        if st.button("⬅️ Back", use_container_width=True, disabled=st.session_state.step==0):
+            st.session_state.step = max(0, st.session_state.step - 1)
+    with colB:
+        st.write("")  # spacer
+    with colC:
+        if st.button("Next ➡️", use_container_width=True, disabled=st.session_state.step==len(PAGES)-1):
+            st.session_state.step = min(len(PAGES)-1, st.session_state.step + 1)
+
+# ------------------------- Render current page -------------------------
+PAGE_FUNCS[st.session_state.step]()
