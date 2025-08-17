@@ -1,16 +1,32 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+env/
 
-# Streamlit
-.streamlit/
-
-# Data & models (comment out lines you DO want tracked)
-*.csv
-*.sav
-*.sps
-*.xlsx
-
-# OS/editor
+# OS / Editor
 .DS_Store
 .vscode/
+.idea/
+
+# Data / Models
+*.pkl
+*.joblib
+*.sav
+*.h5
+*.onnx
+*.csv
+*.tsv
+*.parquet
+*.feather
+model_*.pkl
+schema_lock_*.json
+p_layer*.csv
+layer*_feature_importance.csv
+
+# Streamlit
+.streamlit/secrets.toml
