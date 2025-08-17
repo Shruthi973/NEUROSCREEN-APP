@@ -16,7 +16,7 @@
 It combines **clinical-grade survey logic**, **real-time ML inference**, and **explainable AI** into one seamless Streamlit interface.
 ---
 
-I present **NeuroScreen**, a multi-layer machine learning pipeline and web app that estimates early Parkinson’s disease (PD) risk using (i) large-scale questionnaire data, (ii) longitudinal clinical proxies, and (iii) a short REDCap-based clinical protocol.  
+Presenting **NeuroScreen**, a multi-layer machine learning pipeline and web app that estimates early Parkinson’s disease (PD) risk using (i) large-scale questionnaire data, (ii) longitudinal clinical proxies, and (iii) a short REDCap-based clinical protocol.  
 
 🔒 **Leak guards** enforce strict schema locks to prevent label leakage.  
 ⚡ **Fast inference** with pre-trained artifacts, deployable in Streamlit Cloud.  
