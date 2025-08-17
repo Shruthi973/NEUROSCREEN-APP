@@ -1,0 +1,13 @@
+{
+  "idcol": "PATNO",
+  "label": "EarlyCogImp",
+  "features": {
+    "upsit_proxy": "upsitorder",
+    "rbd_proxy": "RBD_SOURCE_OL",
+    "urinary_proxy": "NP1URIN_OL",
+    "dizzy_proxy": "MCAVIGIL",
+    "memory_proxy": "DIFFRECALL",
+    "age": "AGE_AT_VISIT",
+    "sex": "SEX"
+  }
+}

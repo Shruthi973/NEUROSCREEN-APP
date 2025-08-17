@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# Streamlit
+.streamlit/
+
+# Data & models (comment out lines you DO want tracked)
+*.csv
+*.sav
+*.sps
+*.xlsx
+
+# OS/editor
+.DS_Store
+.vscode/

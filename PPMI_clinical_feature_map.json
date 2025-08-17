@@ -1,0 +1,11 @@
+{
+  "hyposmia": "upsitorder",
+  "rbd": "RBD_SOURCE_OL",
+  "constipation": "MCAVIGIL",
+  "urinary_dysfunction": "NP1URIN_OL",
+  "dizziness": "MCAVIGIL",
+  "erectile_dysfunction": "SEX",
+  "age": "AGE_AT_VISIT",
+  "gender": "SEX",
+  "memory_problems": "DIFFRECALL"
+}
