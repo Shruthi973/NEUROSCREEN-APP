@@ -171,14 +171,18 @@ goto(PAGES.index(which))
 
 # --------------------- Header -------------------------
 from pathlib import Path
+from PIL import Image
+import streamlit as st
 
-LOCAL_HEADER = Path("assets/hero.png")
-REMOTE_HEADER = "https://images.unsplash.com/photo-1576678927484-cc907957088c?q=80&w=1600&auto=format&fit=crop"
+# point to your local PIC.png (same folder as app.py)
+LOCAL_HEADER = Path("PIC.png")
 
 if LOCAL_HEADER.exists():
-    st.image(str(LOCAL_HEADER), use_column_width=True)
+    img = Image.open(LOCAL_HEADER)
+    st.image(img, caption="PIC", use_column_width=True)  # works in all versions
 else:
-    st.image(REMOTE_HEADER, use_column_width=True)
+    st.warning("Local header image not found: PIC.png")
+
 
 st.markdown(f"### HIPAA Notice & Consent")
 
