@@ -173,7 +173,7 @@ goto(PAGES.index(which))
 from pathlib import Path
 
 LOCAL_HEADER = Path("assets/hero.png")
-REMOTE_HEADER = "https://images.unsplash.com/photo-XXXXXXXXXXXXXX?q=80&w=1600&auto=format&fit=crop"
+REMOTE_HEADER = "https://images.unsplash.com/photo-1576678927484-cc907957088c?q=80&w=1600&auto=format&fit=crop"
 
 if LOCAL_HEADER.exists():
     st.image(str(LOCAL_HEADER), use_column_width=True)
