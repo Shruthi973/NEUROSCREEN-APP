@@ -7,3 +7,6 @@ joblib>=1.4.2
 threadpoolctl>=3.5.0
 cloudpickle>=3.0.0
 fpdf==1.7.2
+plotly
+streamlit-extras
+streamlit-lottie
