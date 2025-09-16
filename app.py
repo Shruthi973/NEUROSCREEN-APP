@@ -234,24 +234,30 @@ PAGES = [
 def goto(i):
     i = int(np.clip(i, 0, len(PAGES) - 1))
     st.session_state.page = i
-    # keep the sidebar radio aligned with the current page
-    st.session_state["nav_radio"] = PAGES[i]
+    # tell the next run to sync the sidebar radio BEFORE it's rendered
+    st.session_state["nav_force_sync"] = True
 
 
 # --------------------- Sidebar ------------------------
+# Keep the sidebar radio in sync with page when navigation came from buttons
+if st.session_state.get("nav_force_sync", False):
+    st.session_state["nav_radio"] = PAGES[st.session_state.page]
+    st.session_state["nav_force_sync"] = False
+
+def _sync_page_from_radio():
+    # When the user clicks the radio, update page
+    st.session_state.page = PAGES.index(st.session_state["nav_radio"])
+
 st.sidebar.title("NeuroScreen")
 st.sidebar.subheader("Navigate")
 
-which = st.sidebar.radio(
+st.sidebar.radio(
     "Pages",
     PAGES,
     key="nav_radio",
-    index=st.session_state.page
+    index=st.session_state.page,
+    on_change=_sync_page_from_radio,  # radio controls page
 )
-
-# Only navigate when the user *changes* the radio (button clicks call goto() directly)
-if which != PAGES[st.session_state.page]:
-    goto(PAGES.index(which))
 
 
 # --------------------- Header -------------------------
