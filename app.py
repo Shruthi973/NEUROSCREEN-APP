@@ -44,12 +44,7 @@ HERO_CSS = """
 st.markdown(HERO_CSS, unsafe_allow_html=True)
 
 # --------------------- App config ---------------------
-st.set_page_config(
-    page_title="NeuroScreen",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# (Removed duplicate st.set_page_config — Streamlit allows it only once)
 
 # File locations (adjust if your folders differ)
 MODEL_L1 = "model_layer1.pkl"
@@ -166,7 +161,7 @@ def blend_probs(weights: Dict[str, float],
     """
     weights: {"layer1": 0.2, "layer2": 0.4, "layer3": 0.4}
     probs:   {"layer1": None or 0.xx, "layer2": 0.yy, "layer3": 0.zz}
-    returns: (p_final or None, renorm_weights dict over present layers, missing list)
+    returns: (p_final or None, renorm_weights dict, missing list)
     """
     present = {k: p for k, p in probs.items() if p is not None and np.isfinite(p)}
     missing = [k for k, p in probs.items() if p is None or not np.isfinite(p)]
