@@ -232,7 +232,11 @@ PAGES = [
 ]
 
 def goto(i):
-    st.session_state.page = int(np.clip(i, 0, len(PAGES) - 1))
+    i = int(np.clip(i, 0, len(PAGES) - 1))
+    st.session_state.page = i
+    # keep the sidebar radio aligned with the current page
+    st.session_state["nav_radio"] = PAGES[i]
+
 
 # --------------------- Sidebar ------------------------
 st.sidebar.title("NeuroScreen")
