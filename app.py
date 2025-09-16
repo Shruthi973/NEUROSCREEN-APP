@@ -10,6 +10,39 @@ import pandas as pd
 import streamlit as st
 import joblib
 
+# ---- PAGE CONFIG & IMPORTS (PASTE AT LINE 1) ----
+import streamlit as st
+import pandas as pd
+import numpy as np
+
+st.set_page_config(
+    page_title="NeuroScreen",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ---- GLOBAL STYLE (PASTE RIGHT AFTER set_page_config) ----
+HERO_CSS = """
+<style>
+.hero {
+  padding: 36px 28px;
+  border-radius: 20px;
+  background: radial-gradient(1200px 600px at 10% -10%, #1f2a44 0%, rgba(31,42,68,0) 50%),
+              linear-gradient(135deg,#1e1258 0%, #0e5bb3 50%, #06b6d4 100%);
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  color: #fff;
+}
+.hero h1 { margin: 0 0 6px 0; font-size: 42px; letter-spacing: .3px;}
+.hero p  { opacity: .95; font-size: 17px; margin: 0;}
+.card {
+  border-radius: 18px; padding: 18px; background: var(--secondary-background-color,#131A2A);
+  border: 1px solid rgba(255,255,255,.06); box-shadow: 0 8px 24px rgba(0,0,0,.25);
+}
+</style>
+"""
+st.markdown(HERO_CSS, unsafe_allow_html=True)
+
 # --------------------- App config ---------------------
 st.set_page_config(
     page_title="NeuroScreen",
@@ -112,35 +145,53 @@ def predict_layer(model_path: str, answers: Dict[str, Any]) -> Tuple[Optional[fl
     # If model didn't record features, use whatever we have (unsafe, but rare)
     if not feats:
         feats = list(answers.keys())
+
+    # ---- GUARDRAIL: exclude layer if ZERO usable inputs (per requirement) ----
+    nn = sum(answers.get(f, None) is not None for f in feats)
+    if nn == 0:
+        return None, feats  # mark as "Insufficient data" upstream
+
     X = make_single_row_df(answers, feats).apply(pd.to_numeric, errors="coerce")
     try:
         prob = float(model.predict_proba(X)[:, 1][0])
         return max(0.0, min(1.0, prob)), feats
-    except Exception as e:
-        st.error(f"Layer at {model_path} failed: {e}")
+    except Exception:
+        # Any prediction error => treat as missing for blending, but keep feats for diagnostics
         return None, feats
 
-def weighted_blend(p1: Optional[float], p2: Optional[float], p3: Optional[float]) -> Tuple[float, str]:
-    probs = {"layer1": p1, "layer2": p2, "layer3": p3}
-    present = {k: v for k, v in probs.items() if v is not None and not math.isnan(v)}
+# ---------- NEW: Renormalize-only-present-layers blending (drop-in) ----------
+def blend_probs(weights: Dict[str, float],
+                probs: Dict[str, Optional[float]]
+               ) -> Tuple[Optional[float], Dict[str, float], List[str]]:
+    """
+    weights: {"layer1": 0.2, "layer2": 0.4, "layer3": 0.4}
+    probs:   {"layer1": None or 0.xx, "layer2": 0.yy, "layer3": 0.zz}
+    returns: (p_final or None, renorm_weights dict over present layers, missing list)
+    """
+    present = {k: p for k, p in probs.items() if p is not None and np.isfinite(p)}
+    missing = [k for k, p in probs.items() if p is None or not np.isfinite(p)]
     if not present:
-        return float("nan"), "none"
-    w = {k: W[k] for k in present.keys()}
-    ws = sum(w.values())
-    w = {k: v / ws for k, v in w.items()}  # renormalize
-    p_final = sum(w[k] * present[k] for k in present.keys())
-    used = "|".join(sorted(present.keys()))
-    return float(p_final), used
+        return None, {}, missing
+
+    total_w = sum(weights[k] for k in present.keys())
+    # Defensive: if total_w is 0 (shouldn't happen with your W), fall back to equal weights
+    if total_w <= 0:
+        eq = 1.0 / len(present)
+        renorm = {k: eq for k in present.keys()}
+    else:
+        renorm = {k: weights[k] / total_w for k in present.keys()}
+
+    p_final = sum(renorm[k] * present[k] for k in present.keys())
+    return float(p_final), renorm, missing
 
 def categorize(p_final: float) -> Tuple[str, str]:
-    if not np.isfinite(p_final):
+    if p_final is None or not np.isfinite(p_final):
         return "unknown", "Not enough information to compute risk. Please answer a few more items."
     if p_final < LOW_THR:
         return "low", "Low risk: healthy habits, regular exercise, and routine check-ups are advisable."
     if p_final < HIGH_THR:
         return "medium", "Moderate risk: consider a neurological evaluation if symptoms persist or worsen."
     return "high", "High risk: please seek a clinical evaluation from a neurologist specializing in movement disorders."
-
 
 # --- diagnostics helpers ---
 def model_exists(path): 
@@ -156,8 +207,11 @@ def safe_predict(name, path, answers):
         return None, None, f"{name}: model file missing at {full}"
     try:
         prob, feats = predict_layer(path, answers)
+        # Note: predict_layer already enforces zero-input exclusion.
         if prob is None:
             nn = nonnull_count_for(feats, answers)
+            if nn == 0:
+                return None, feats, f"{name}: Insufficient data (0 usable inputs)"
             return None, feats, f"{name}: predict_proba failed or returned None (nonnull features fed: {nn})"
         return prob, feats, f"{name}: OK (nonnull features fed: {nonnull_count_for(feats, answers)})"
     except Exception as e:
@@ -477,8 +531,8 @@ elif page == 6:
             with c1:
                 skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
             if skip:
-                st.caption("↳ Skipped (blank for the model)")
                 A[key] = None
+                st.caption("↳ Skipped (blank for the model)")
                 return
             v = st.slider(label, 0, 10, 0, key=key)
             A[key] = int(v)
@@ -544,8 +598,7 @@ else:
     df_out.to_csv("app_inputs.csv", index=False)
     st.caption("Saved current answers → app_inputs.csv")
 
-    # Predict per layer
-    # Predict per layer with diagnostics
+    # Predict per layer with diagnostics (now respects zero-input exclusion)
     p1, f1, d1 = safe_predict("Layer 1", MODEL_L1, A)
     p2, f2, d2 = safe_predict("Layer 2", MODEL_L2, A)
     p3, f3, d3 = safe_predict("Layer 3", MODEL_L3, A)
@@ -558,32 +611,42 @@ else:
         if f2: st.caption(f"Layer 2 expected features: {f2}")
         if f3: st.caption(f"Layer 3 expected features: {f3}")
 
-    used_feats = {
-        "layer1": f1 if f1 else [],
-        "layer2": f2 if f2 else [],
-        "layer3": f3 if f3 else [],
-    }
-
-    p_final, used_layers = weighted_blend(p1, p2, p3)
-    risk_cat, advice = categorize(p_final)
+    # ---- NEW: renormalize over present layers only
+    probs = {"layer1": p1, "layer2": p2, "layer3": p3}
+    p_final, renorm_w, missing_layers = blend_probs(W, probs)
+    risk_cat, advice = categorize(p_final if p_final is not None else float("nan"))
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.metric("Layer 1 prob", f"{'—' if p1 is None else f'{p1*100:.1f}%'}")
+        st.metric("Layer 1 prob", "—" if p1 is None else f"{p1*100:.1f}%")
+        if p1 is None:
+            st.caption("Insufficient data")
     with c2:
-        st.metric("Layer 2 prob", f"{'—' if p2 is None else f'{p2*100:.1f}%'}")
+        st.metric("Layer 2 prob", "—" if p2 is None else f"{p2*100:.1f}%")
+        if p2 is None:
+            st.caption("Insufficient data")
     with c3:
-        st.metric("Layer 3 prob", f"{'—' if p3 is None else f'{p3*100:.1f}%'}")
+        st.metric("Layer 3 prob", "—" if p3 is None else f"{p3*100:.1f}%")
+        if p3 is None:
+            st.caption("Insufficient data")
 
     st.subheader("Final PD risk")
-    if np.isfinite(p_final):
+    if p_final is not None and np.isfinite(p_final):
         st.success(f"**{p_final*100:.1f}%**  →  **{risk_cat.upper()}**")
     else:
         st.error("Not enough information to compute a final risk.")
 
     st.write(advice)
 
-    st.caption(f"Used layers: {used_layers or 'none'} (weights: L1={W['layer1']}, L2={W['layer2']}, L3={W['layer3']})")
+    used_layers = [k for k,v in probs.items() if v is not None and np.isfinite(v)]
+    if used_layers:
+        renorm_str = ", ".join([f"{k}:{renorm_w[k]:.3f}" for k in used_layers])
+    else:
+        renorm_str = "—"
+    st.caption(
+        f"Used layers: {', '.join(used_layers) if used_layers else 'none'} "
+        f"(renormalized weights over present layers → {renorm_str}; base W: L1={W['layer1']}, L2={W['layer2']}, L3={W['layer3']})"
+    )
 
     st.divider()
     with st.expander("Show raw feature row (debug)"):
