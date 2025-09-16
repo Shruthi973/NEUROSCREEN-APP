@@ -361,11 +361,11 @@ elif page == 1:
         age = number_with_skip(
             "Age (years)",
             key="age_num",
-            desc="Enter your age in whole years (or leave blank if you prefer not to answer)."
+            desc="Enter your age in whole years."
         )
         sex_val = sex_radio(
             "sex_radio",
-            desc="Select your sex (as listed in medical records)."
+            desc="Select your sex."
         )
 
         # Map to all layers
