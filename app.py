@@ -55,26 +55,27 @@ MODEL_L3 = "model_layer3.pkl"
 W = {"layer1": 0.2, "layer2": 0.4, "layer3": 0.4}
 LOW_THR, HIGH_THR = 0.33, 0.66
 
-# --------------------- Helpers (UI) -------------------
 
 # --------------------- Helpers (UI) -------------------
+
 def likert_with_skip(
     label: str,
     key: str,
     desc: str = None,
     help_text: Optional[str] = None,
 ) -> Optional[int]:
-    c1, c2 = st.columns([1, 3])
-    with c1:
-        skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
+    # 1) Question + slider
+    val = st.slider(label, min_value=0, max_value=4, value=0, key=key, help=help_text)
+    # 2) Gray helper line (if provided)
+    if desc: st.caption(desc)
+    # 3) Prefer-not checkbox BELOW the slider
+    skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
     if skip:
         st.caption("↳ Skipped (blank for the model)")
         st.session_state[key] = None
-        if desc: st.caption(desc)
         return None
-    val = st.slider(label, min_value=0, max_value=4, value=0, key=key, help=help_text)
-    if desc: st.caption(desc)
     return int(val)
+
 
 def yesno_with_skip(
     label: str,
@@ -119,18 +120,17 @@ def number_with_skip(
     placeholder: str = "",
     desc: str = None,
 ) -> Optional[float]:
-    # use text_input so blank stays blank
-    c1, c2 = st.columns([1, 3])
-    with c1:
-        skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
+    # 1) Question + text input
+    txt = st.text_input(label, key=key, placeholder=placeholder)
+    txt = txt.strip()
+    # 2) Gray helper line (if provided)
+    if desc: st.caption(desc)
+    # 3) Prefer-not checkbox BELOW the input
+    skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
     if skip:
         st.caption("↳ Skipped (blank for the model)")
         st.session_state[key] = None
-        if desc: st.caption(desc)
         return None
-    txt = st.text_input(label, key=key, placeholder=placeholder)
-    txt = txt.strip()
-    if desc: st.caption(desc)
     if txt == "":
         return None
     try:
@@ -324,7 +324,7 @@ st.markdown(f"**Progress:** {crumbs}")
 # Convenience
 A = st.session_state.answers
 
-# --------------------- Pages --------------------------
+
 # --------------------- Pages --------------------------
 page = st.session_state.page
 
@@ -476,11 +476,31 @@ elif page == 4:
             "ImpactMoveTremor",
             desc="Hold your hands out for 10 seconds or try lifting a cup; rate the impact."
         )
-        A["ARMLGSHK_OL"] = likert_with_skip("Arm/leg shaking (tremor) — severity", "ARMLGSHK_OL")
-        A["SHUFFLE_OL"] = likert_with_skip("Shuffling steps — severity", "SHUFFLE_OL")
-        A["MVSLOW_OL"] = likert_with_skip("Slowness of movement — severity", "MVSLOW_OL")
-        A["POORBAL_OL"] = likert_with_skip("Poor balance / near-falls — severity", "POORBAL_OL")
-        A["FTSTUCK_OL"] = likert_with_skip("Feet feel stuck / freezing — severity", "FTSTUCK_OL")
+        A["ARMLGSHK_OL"] = likert_with_skip(
+            "Arm/leg shaking (tremor) — severity",
+            "ARMLGSHK_OL",
+            desc="Shaking in the arms or legs at rest or during action; rate typical severity."
+        )
+        A["SHUFFLE_OL"] = likert_with_skip(
+            "Shuffling steps — severity",
+            "SHUFFLE_OL",
+            desc="Short, shuffling steps when walking; rate how often/severe this feels."
+        )
+        A["MVSLOW_OL"] = likert_with_skip(
+            "Slowness of movement — severity",
+            "MVSLOW_OL",
+            desc="General slowness (bradykinesia): smaller/fewer movements or slower actions."
+        )
+        A["POORBAL_OL"] = likert_with_skip(
+            "Poor balance / near-falls — severity",
+            "POORBAL_OL",
+            desc="Unsteady balance, near-falls, or needing support to steady yourself."
+        )
+        A["FTSTUCK_OL"] = likert_with_skip(
+            "Feet feel stuck / freezing — severity",
+            "FTSTUCK_OL",
+            desc="Feet ‘stick’ when starting, turning, or in narrow spaces; rate frequency/severity."
+        )
 
         st.subheader("Walking ability (short test)")
         st.caption("If safe, try 10 meters. If you use a cane/walker, select that option. Skip if unsafe.")
