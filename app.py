@@ -241,8 +241,18 @@ def goto(i):
 # --------------------- Sidebar ------------------------
 st.sidebar.title("NeuroScreen")
 st.sidebar.subheader("Navigate")
-which = st.sidebar.radio("Pages", PAGES, index=st.session_state.page)
-goto(PAGES.index(which))
+
+which = st.sidebar.radio(
+    "Pages",
+    PAGES,
+    key="nav_radio",
+    index=st.session_state.page
+)
+
+# Only navigate when the user *changes* the radio (button clicks call goto() directly)
+if which != PAGES[st.session_state.page]:
+    goto(PAGES.index(which))
+
 
 # --------------------- Header -------------------------
 from pathlib import Path
