@@ -293,6 +293,7 @@ st.markdown(f"**Progress:** {crumbs}")
 A = st.session_state.answers
 
 # --------------------- Pages --------------------------
+# --------------------- Pages --------------------------
 page = st.session_state.page
 
 def nav_buttons():
@@ -325,8 +326,15 @@ elif page == 1:
     st.header("Demographics")
     # ---- FORM WRAPPER ----
     with st.form("form1"):
-        age = number_with_skip("Age (years)", key="age_num")
-        sex_val = sex_radio("sex_radio")
+        age = number_with_skip(
+            "Age (years)",
+            key="age_num",
+            desc="Enter your age in whole years (or leave blank if you prefer not to answer)."
+        )
+        sex_val = sex_radio(
+            "sex_radio",
+            desc="Select your sex (as listed in medical records)."
+        )
 
         # Map to all layers
         A["age"] = age
@@ -355,17 +363,20 @@ elif page == 2:
     with st.form("form2"):
         # L1 Likert
         A["ImpactMoveHyposmia"] = likert_with_skip(
-            "Reduced sense of smell — severity", "ImpactMoveHyposmia",
-            "Sniff coffee grounds or soap; rate how strong it smells."
+            "Reduced sense of smell — severity",
+            "ImpactMoveHyposmia",
+            desc="Sniff coffee grounds or soap and rate how strong the smell is."
         )
         A["ImpactMoveConstipation"] = likert_with_skip(
-            "Constipation affecting daily life — severity", "ImpactMoveConstipation",
-            "Past 2 weeks: hard stools, straining, <3 BMs/week."
+            "Constipation affecting daily life — severity",
+            "ImpactMoveConstipation",
+            desc="Past 2 weeks: hard stools, straining, or fewer than 3 bowel movements per week."
         )
         # L2 flag
         A["UPSIT_PRESENT"] = yesno_with_skip(
-            "Reduced smell present (Yes/No)?", "UPSIT_PRESENT",
-            "If coffee/soap/lotion smells faint or absent, choose Yes."
+            "Reduced smell present (Yes/No)?",
+            "UPSIT_PRESENT",
+            desc="If coffee/soap/lotion smells faint or absent, choose ‘Yes’."
         )
 
         c1, c2 = st.columns([1,1])
@@ -386,22 +397,29 @@ elif page == 3:
     # ---- FORM WRAPPER ----
     with st.form("form3"):
         A["ImpactMoveUrinary"] = likert_with_skip(
-            "Urinary urgency/frequency — severity", "ImpactMoveUrinary",
-            "Do you rush to the bathroom or go more often than usual?"
+            "Urinary urgency/frequency — severity",
+            "ImpactMoveUrinary",
+            desc="Do you rush to the bathroom or go more often than usual?"
         )
         A["MoveSaliva"] = likert_with_skip(
-            "Excess saliva/drooling — severity", "MoveSaliva",
-            "Need to swallow often; drooling on pillow?"
+            "Excess saliva/drooling — severity",
+            "MoveSaliva",
+            desc="Do you need to swallow often or notice drool on your pillow?"
         )
         A["URIN_PRESENT"] = yesno_with_skip(
-            "Urinary problems present (Yes/No)?", "URIN_PRESENT",
-            "Urgency, frequency, or nighttime bathroom trips >2."
+            "Urinary problems present (Yes/No)?",
+            "URIN_PRESENT",
+            desc="Urgency, frequency, or nighttime bathroom trips more than twice."
         )
         A["NP1URIN_OL"] = likert_with_skip(
-            "Urinary difficulties (overall) — severity", "NP1URIN_OL"
+            "Urinary difficulties (overall) — severity",
+            "NP1URIN_OL",
+            desc="Overall rating of urinary difficulties in the past 2 weeks."
         )
         A["PQUEST_SOURCE_OL"] = yesno_with_skip(
-            "Did you complete these questions yourself? (Yes/No)", "PQUEST_SOURCE_OL"
+            "Did you complete these questions yourself? (Yes/No)",
+            "PQUEST_SOURCE_OL",
+            desc="Choose ‘Yes’ if you personally answered these questions today."
         )
 
         c1, c2 = st.columns([1,1])
@@ -422,8 +440,9 @@ elif page == 4:
     # ---- FORM WRAPPER ----
     with st.form("form4"):
         A["ImpactMoveTremor"] = likert_with_skip(
-            "Tremor affecting tasks — severity", "ImpactMoveTremor",
-            "Hold your hands out 10 sec; try lifting a cup; rate impact."
+            "Tremor affecting tasks — severity",
+            "ImpactMoveTremor",
+            desc="Hold your hands out for 10 seconds or try lifting a cup; rate the impact."
         )
         A["ARMLGSHK_OL"] = likert_with_skip("Arm/leg shaking (tremor) — severity", "ARMLGSHK_OL")
         A["SHUFFLE_OL"] = likert_with_skip("Shuffling steps — severity", "SHUFFLE_OL")
@@ -434,8 +453,10 @@ elif page == 4:
         st.subheader("Walking ability (short test)")
         st.caption("If safe, try 10 meters. If you use a cane/walker, select that option. Skip if unsafe.")
         walk_choice = st.radio(
-            "Can you walk across a room unaided?", ["Yes", "With aid", "No", "Prefer not to answer"],
-            horizontal=True, key="screening_walk_radio"
+            "Can you walk across a room unaided?",
+            ["Yes", "With aid", "No", "Prefer not to answer"],
+            horizontal=True,
+            key="screening_walk_radio"
         )
         if walk_choice == "Yes":
             A["screening_walk"] = 1.0
@@ -447,8 +468,10 @@ elif page == 4:
             A["screening_walk"] = None
 
         A["dt_tug_time"] = number_with_skip(
-            "Timed Up & Go (seconds)", key="dt_tug_time",
-            placeholder="e.g., 9.6"
+            "Timed Up & Go (seconds)",
+            key="dt_tug_time",
+            placeholder="e.g., 9.6",
+            desc="From seated: stand, walk 3 m, turn, return, and sit; enter the total seconds."
         )
 
         c1, c2 = st.columns([1,1])
@@ -469,25 +492,29 @@ elif page == 5:
     # ---- FORM WRAPPER ----
     with st.form("form5"):
         A["ImpactThinkBodyFatigue"] = likert_with_skip(
-            "Fatigue slowing thinking/activity — severity", "ImpactThinkBodyFatigue",
-            "Is daytime energy low; do tasks feel slower?"
+            "Fatigue slowing thinking/activity — severity",
+            "ImpactThinkBodyFatigue",
+            desc="Is daytime energy low; do tasks feel slower than usual?"
         )
         A["ImpactThinkDizzy"] = likert_with_skip(
-            "Dizziness / light-headedness — severity", "ImpactThinkDizzy",
-            "Stand up and count to 10—did you feel woozy?"
+            "Dizziness / light-headedness — severity",
+            "ImpactThinkDizzy",
+            desc="Stand up and count to 10—did you feel woozy or light-headed?"
         )
         A["VOICSFTR_OL"] = likert_with_skip("Softer / quieter voice — severity", "VOICSFTR_OL")
         A["LSSXPRSS_OL"] = likert_with_skip("Reduced facial expression — severity", "LSSXPRSS_OL")
 
         A["RBD_PRESENT"] = yesno_with_skip(
-            "Acting out dreams during sleep (kicking/shouting)?", "RBD_PRESENT",
-            "Ask a bed partner if unsure."
+            "Acting out dreams during sleep (kicking/shouting)?",
+            "RBD_PRESENT",
+            desc="Ask a bed partner if unsure; choose ‘Yes’ if dream enactment is present."
         )
         if A.get("RBD_PRESENT", None) == 1:
             src = st.radio(
                 "Who noticed/diagnosed this?",
                 ["Self (1)", "Bed partner (2)", "Physician (3)", "Prefer not to answer"],
-                horizontal=True, key="RBD_SOURCE_OL_radio"
+                horizontal=True,
+                key="RBD_SOURCE_OL_radio"
             )
             if src == "Self (1)":
                 A["RBD_SOURCE_OL"] = 1
@@ -518,25 +545,31 @@ elif page == 6:
     # ---- FORM WRAPPER ----
     with st.form("form6"):
         A["ImpactThinkMemory"] = likert_with_skip(
-            "Memory / word-finding issues — severity", "ImpactThinkMemory",
-            "Names/appointments/words harder than usual?"
+            "Memory / word-finding issues — severity",
+            "ImpactThinkMemory",
+            desc="Are names, appointments, or common words harder to recall than usual?"
         )
         A["Anxiety"] = likert_with_skip(
-            "Feeling anxious / worried — severity (past 2 weeks)", "Anxiety"
+            "Feeling anxious / worried — severity (past 2 weeks)",
+            "Anxiety",
+            desc="Overall anxiety or worry level over the last two weeks."
         )
 
         st.subheader("Quick cognitive checks")
         A["DIFFRECALL"] = likert_with_skip(
-            "Word recall difficulty — severity", "DIFFRECALL",
-            "Say 3 words (e.g., apple, chair, penny); after 1 minute, try to recall them."
+            "Word recall difficulty — severity",
+            "DIFFRECALL",
+            desc="Say 3 words (e.g., apple, chair, penny); after 1 minute, try to recall them."
         )
         A["MCAVIGIL"] = likert_with_skip(
-            "Sustained attention issues — severity", "MCAVIGIL",
-            "Count backward by 7s for 30 sec or focus on a timer; rate difficulty."
+            "Sustained attention issues — severity",
+            "MCAVIGIL",
+            desc="Try counting backward by 7s for 30 seconds; rate difficulty focusing."
         )
         A["MEM_PRESENT"] = yesno_with_skip(
-            "Memory problems present (Yes/No)?", "MEM_PRESENT",
-            "Misplacing items, repeating questions, forgetting recent events."
+            "Memory problems present (Yes/No)?",
+            "MEM_PRESENT",
+            desc="Misplacing items, repeating questions, or forgetting recent events."
         )
 
         st.subheader("Short protocol items")
@@ -556,11 +589,14 @@ elif page == 6:
         zero_ten_with_skip("Conscious movement score (0–10)", "conscious_movement_score")
 
         A["cdte"] = yesno_with_skip(
-            "Clock-drawing done today?", "cdte",
-            "Draw an analog clock showing 10 past 11; choose Yes if performed now."
+            "Clock-drawing done today?",
+            "cdte",
+            desc="Draw an analog clock showing 10 past 11; choose ‘Yes’ if performed now."
         )
         A["cogdt"] = yesno_with_skip(
-            "Orientation item done today (date & location)?", "cogdt"
+            "Orientation item done today (date & location)?",
+            "cogdt",
+            desc="Answer a quick date and location question today, if done."
         )
 
         # L2 motor/usability items
