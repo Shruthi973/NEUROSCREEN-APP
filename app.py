@@ -56,19 +56,14 @@ W = {"layer1": 0.2, "layer2": 0.4, "layer3": 0.4}
 LOW_THR, HIGH_THR = 0.33, 0.66
 
 # --------------------- Helpers (UI) -------------------
-# --------------------- Helpers (UI) -------------------
-from typing import Optional
-import numpy as np
-import pandas as pd
-import streamlit as st
 
+# --------------------- Helpers (UI) -------------------
 def likert_with_skip(
     label: str,
     key: str,
     desc: str = None,
     help_text: Optional[str] = None,
 ) -> Optional[int]:
-    """0–4 slider with a 'Prefer not to answer' checkbox and an optional gray description line."""
     c1, c2 = st.columns([1, 3])
     with c1:
         skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
@@ -87,7 +82,6 @@ def yesno_with_skip(
     desc: str = None,
     help_text: Optional[str] = None,
 ) -> Optional[int]:
-    """Yes/No radio with a 'Prefer not to answer' option and optional gray description line."""
     choice = st.radio(
         label,
         ["Yes", "No", "Prefer not to answer"],
@@ -106,7 +100,6 @@ def sex_radio(
     key: str,
     desc: str = None,
 ) -> Optional[int]:
-    """Male/Female/Prefer not to answer radio with optional gray description line."""
     choice = st.radio(
         "Sex",
         ["Male", "Female", "Prefer not to answer"],
@@ -126,7 +119,7 @@ def number_with_skip(
     placeholder: str = "",
     desc: str = None,
 ) -> Optional[float]:
-    """Text input for numbers that stays blank when empty, with skip and optional gray description line."""
+    # use text_input so blank stays blank
     c1, c2 = st.columns([1, 3])
     with c1:
         skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
@@ -146,27 +139,40 @@ def number_with_skip(
         st.warning("Please enter a number (or check 'Prefer not to answer').")
         return None
 
-def zero_ten_with_skip(
-    label: str,
-    key: str,
-    desc: str = None,
-) -> Optional[int]:
-    """0–10 slider with a 'Prefer not to answer' checkbox and optional gray description line."""
-    c1, c2 = st.columns([1, 3])
-    with c1:
-        skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
-    if skip:
-        st.caption("↳ Skipped (blank for the model)")
-        st.session_state[key] = None
-        if desc: st.caption(desc)
-        return None
-    v = st.slider(label, 0, 10, 0, key=key)
-    if desc: st.caption(desc)
-    return int(v)
-
 def section_scale_hint():
     st.caption("Scale: 0=None, 1=Slight, 2=Mild, 3=Moderate, 4=Severe. Use 'Prefer not to answer' if unsure.")
 
+    # --------------------- Helpers (models) ----------------
+def unwrap_model(obj):
+    # support dict bundles: {"pipeline":..., "features":[...], ...}
+    if isinstance(obj, dict) and "pipeline" in obj:
+        return obj["pipeline"], obj.get("features")
+    return obj, None
+
+def expected_features(model, features_from_bundle: Optional[List[str]]) -> Optional[List[str]]:
+    if features_from_bundle:
+        return [str(c) for c in features_from_bundle]
+    if hasattr(model, "feature_names_in_"):
+        return [str(x) for x in model.feature_names_in_]
+    return None
+
+def make_single_row_df(answers: Dict[str, Any], feature_list: List[str]) -> pd.DataFrame:
+    row = {}
+    for f in feature_list:
+        v = answers.get(f, None)
+        row[f] = (np.nan if v is None else v)
+    return pd.DataFrame([row], columns=feature_list)
+
+def predict_layer(model_path: str, answers: Dict[str, Any]) -> Tuple[Optional[float], Optional[List[str]]]:
+    p = Path(model_path)
+    if not p.exists():
+        return None, None
+    bundle = joblib.load(p)
+    model, feats_hint = unwrap_model(bundle)
+    feats = expected_features(model, feats_hint)
+    # If model didn't record features, use whatever we have (unsafe, but rare)
+    if not feats:
+        feats = list(answers.keys())
     # ---- GUARDRAIL: exclude layer if ZERO usable inputs (per requirement) ----
     nn = sum(answers.get(f, None) is not None for f in feats)
     if nn == 0:
