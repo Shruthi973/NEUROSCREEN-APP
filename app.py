@@ -293,6 +293,36 @@ st.sidebar.radio(
 
 
 # --------------------- Header -------------------------
+from pathlib import Path
+from PIL import Image
+import streamlit as st
+
+# point to your local PIC.png (same folder as app.py)
+LOCAL_HEADER = Path("PIC.png")
+
+if LOCAL_HEADER.exists():
+    img = Image.open(LOCAL_HEADER)
+    st.image(img, caption="PIC", use_column_width=True)  # works in all versions
+else:
+    st.warning("Local header image not found: PIC.png")
+
+
+st.markdown(f"### HIPAA Notice & Consent")
+
+st.write(
+    "HIPAA Privacy Notice: This tool collects health-related answers for the limited purpose of risk triage and research. "
+    "Data are stored only for the current session unless you choose to export. Do not enter personally identifiable information. "
+    "By checking 'I Agree', you consent to use of your answers for the risk estimate shown in this app and to aggregate anonymized analytics."
+)
+
+st.session_state.agree = st.checkbox("I Agree", value=st.session_state.agree)
+
+# Breadcrumb
+crumbs = " > ".join(PAGES)
+st.markdown(f"**Progress:** {crumbs}")
+
+# Convenience
+A = st.session_state.answers
 
 
 # --------------------- Pages --------------------------
