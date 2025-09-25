@@ -302,7 +302,7 @@ LOCAL_HEADER = Path("PIC.png")
 
 if LOCAL_HEADER.exists():
     img = Image.open(LOCAL_HEADER)
-    st.image(img, caption="PIC", use_column_width=True)  # works in all versions
+    st.image(img, use_column_width=True)  # works in all versions
 else:
     st.warning("Local header image not found: PIC.png")
 
