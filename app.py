@@ -1,7 +1,7 @@
 # app.py — NeuroScreen multi-layer PD risk tool
 # Run:  streamlit run app.py
 
-import os, io, json, math
+import os, io, json, math, re
 from pathlib import Path
 from typing import Dict, Any, Tuple, Optional, List
 
@@ -37,7 +37,7 @@ HERO_CSS = """
   border-radius: 18px; padding: 18px; background: var(--secondary-background-color,#131A2A);
   border: 1px solid rgba(255,255,255,.06); box-shadow: 0 8px 24px rgba(0,0,0,.25);
 }
-/* NEW: bigger bold question label */
+/* bigger bold question label */
 .q-label{font-size:20px;font-weight:700;margin:10px 0 6px 0}
 </style>
 """
@@ -52,14 +52,11 @@ MODEL_L3 = "model_layer3.pkl"
 W = {"layer1": 0.2, "layer2": 0.4, "layer3": 0.4}
 LOW_THR, HIGH_THR = 0.33, 0.66
 
-# --------------------- Data storage -------------------
-# Persist to a stable folder in your home directory (or use NEURO_DATA_DIR if set)
+# --------------------- Data storage (local, durable) -------------------
 DATA_DIR = Path(os.environ.get("NEURO_DATA_DIR", str(Path.home() / ".neuroscreen_data")))
-
 USERS_CSV = DATA_DIR / "users.csv"
 RESULTS_CSV = DATA_DIR / "results.csv"
 
-# Required schemas
 USER_COLS = ["user_id","name","address","created_at_utc","created_at_local"]
 RESULT_COLS = [
     "result_id","user_id","name","address",
@@ -94,6 +91,72 @@ def load_results() -> pd.DataFrame:
     except Exception:
         return pd.DataFrame(columns=RESULT_COLS)
 
+# --------------------- Google Sheets helpers (optional) -------------------
+def _extract_sheet_key(url_or_key: str) -> str:
+    m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", str(url_or_key))
+    return m.group(1) if m else str(url_or_key).strip()
+
+@st.cache_resource(show_spinner=False)
+def _gsheets_handle():
+    """Return (client, spreadsheet) or (None, None) if not configured."""
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+    except Exception:
+        return None, None
+    try:
+        svc = st.secrets.get("gcp_service_account", None)
+        if not svc:
+            return None, None
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds = Credentials.from_service_account_info(svc, scopes=scopes)
+        client = gspread.authorize(creds)
+        sheet_key = st.secrets.get("GSHEET_ID") or _extract_sheet_key(st.secrets.get("GSHEET_URL", ""))
+        if not sheet_key:
+            return None, None
+        sh = client.open_by_key(sheet_key)
+        return client, sh
+    except Exception:
+        return None, None
+
+def _get_ws(sh, title: str, headers: List[str]):
+    """Get/create worksheet with headers."""
+    try:
+        ws = sh.worksheet(title)
+    except Exception:
+        ws = sh.add_worksheet(title=title, rows=1000, cols=max(10, len(headers)))
+        ws.append_row(headers)
+        return ws
+    # ensure header row exists/has same order
+    try:
+        first = ws.row_values(1)
+        if first != headers:
+            # replace headers safely
+            ws.delete_rows(1)
+            ws.insert_row(headers, 1)
+    except Exception:
+        pass
+    return ws
+
+def _append_to_gsheets(tab: str, row: Dict[str, Any], headers: List[str]):
+    client, sh = _gsheets_handle()
+    if not sh:
+        return False, "Sheets not configured"
+    try:
+        ws = _get_ws(sh, tab, headers)
+        values = [row.get(h, "") for h in headers]
+        ws.append_row(values, value_input_option="RAW")
+        return True, "ok"
+    except Exception as e:
+        return False, f"append failed: {e}"
+
+GSHEET_USERS_TAB   = st.secrets.get("GSHEET_USERS_TAB", "users")
+GSHEET_RESULTS_TAB = st.secrets.get("GSHEET_RESULTS_TAB", "results")
+
+# --------------------- Save rows (local + Google Sheets) -------------------
 def save_user(name: str, address: str) -> str:
     _ensure_data_files()
     uid = datetime.now().strftime("%y%m%d%H%M%S%f")[-10:]
@@ -101,9 +164,14 @@ def save_user(name: str, address: str) -> str:
     now_loc = datetime.now().astimezone().isoformat(timespec="seconds")
     row = {"user_id": uid, "name": name.strip(), "address": address.strip(),
            "created_at_utc": now_utc, "created_at_local": now_loc}
+
+    # local CSV
     df = load_users()
     df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
     df.to_csv(USERS_CSV, index=False)
+
+    # Google Sheets (best-effort)
+    _append_to_gsheets(GSHEET_USERS_TAB, row, USER_COLS)
     return uid
 
 def save_result(user_id: str, name: str, address: str,
@@ -128,14 +196,18 @@ def save_result(user_id: str, name: str, address: str,
         "created_at_utc": now_utc,
         "created_at_local": now_loc,
     }
+
+    # local CSV
     df = load_results()
     df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
     df.to_csv(RESULTS_CSV, index=False)
+
+    # Google Sheets (best-effort)
+    _append_to_gsheets(GSHEET_RESULTS_TAB, row, RESULT_COLS)
     return rid
 
-# --------------------- Helpers (UI) -------------------
+# --------------------- UI helpers -------------------
 def _q_label(label: str, desc: Optional[str]):
-    """Render big bold label with helper in parentheses."""
     help_part = f" ({desc})" if desc else ""
     st.markdown(f"<div class='q-label'><strong>{label}</strong>{help_part}</div>", unsafe_allow_html=True)
 
@@ -181,7 +253,7 @@ def number_with_skip(label: str, key: str, placeholder: str="", desc: str=None) 
 def section_scale_hint():
     st.caption("Scale: 0=None, 1=Slight, 2=Mild, 3=Moderate, 4=Severe. Use 'Prefer not to answer' if unsure.")
 
-# --------------------- Helpers (models) ----------------
+# --------------------- Model helpers ----------------
 def unwrap_model(obj):
     if isinstance(obj, dict) and "pipeline" in obj:
         return obj["pipeline"], obj.get("features")
@@ -257,8 +329,7 @@ if "user_name" not in st.session_state: st.session_state.user_name = ""
 if "user_addr" not in st.session_state: st.session_state.user_addr = ""
 
 #--------------------------------
-# ---- show/hide the Sign-Ups page ----
-SHOW_SIGNUPS_PAGE = False  # set True if you want it back later
+SHOW_SIGNUPS_PAGE = False  # toggle page in nav if you want it visible later
 
 # --------------------- Pages --------------------------
 PAGES = [
@@ -273,13 +344,11 @@ PAGES = [
     "Review & Results",
 ] + (["Sign-Ups"] if SHOW_SIGNUPS_PAGE else [])
 
-
 def goto(i):
     i = int(np.clip(i, 0, len(PAGES)-1))
     st.session_state.page = i
     st.session_state["nav_force_sync"] = True
 
-# --- single-click navigation helpers ---
 def goto_index(i: int):
     i = int(np.clip(i, 0, len(PAGES) - 1))
     st.session_state.page = i
@@ -303,7 +372,6 @@ def _sync_page_from_radio(): st.session_state.page = PAGES.index(st.session_stat
 st.sidebar.title("NeuroScreen")
 st.sidebar.subheader("Navigate")
 
-# Always show sign-up count
 try:
     _ensure_data_files()
     _cnt = len(load_users())
@@ -312,8 +380,11 @@ except Exception:
 st.sidebar.metric("Sign-ups", _cnt)
 
 st.sidebar.radio("Pages", PAGES, key="nav_radio", index=st.session_state.page, on_change=_sync_page_from_radio)
-# Optional: show where data is stored
 st.sidebar.caption(f"Data folder: {DATA_DIR}")
+
+# Sheets status hint (optional)
+_, _sh = _gsheets_handle()
+st.sidebar.caption("Sheets: " + ("connected" if _sh else "not configured"))
 
 # --------------------- Header -------------------------
 LOCAL_HEADER = Path("PIC.png")
@@ -333,18 +404,16 @@ st.write(
 )
 st.session_state.agree = st.checkbox("I Agree", value=st.session_state.agree)
 
-# Breadcrumb
 st.markdown(f"**Progress:** {' > '.join(PAGES)}")
 
 A = st.session_state.answers
-page = st.session_state.page
-page_name = PAGES[page]
+page_name = PAGES[st.session_state.page]
 
 # --------------------- Pages --------------------------
 # Sign Up
 if page_name == "Sign Up":
     st.header("Create a simple account")
-    st.caption("We record your name, address, and access time. Sign-ups are visible on the Sign-Ups page.")
+    st.caption("We record your name, address, and access time.")
     _ensure_data_files()
 
     with st.form("signup_form", clear_on_submit=False):
@@ -367,9 +436,8 @@ if page_name == "Sign Up":
             st.session_state.user_name = name.strip()
             st.session_state.user_addr = address.strip()
             st.success(f"Thanks for signing up, **{name}**! Your ID is `{uid}`.")
-            st.rerun()  # refresh side count immediately
+            st.rerun()
 
-    # NEW: Next auto-signs up if needed (so everyone is counted)
     if nextp:
         if st.session_state.user_id:
             go_next()
@@ -522,7 +590,7 @@ elif page_name == "Memory & Anxiety":
                                            desc="Misplacing items, repeating questions, or forgetting recent events.")
         st.subheader("Short protocol items")
         def zero_ten_with_skip(label, key):
-            _q_label(label, None)  # keep big label, no helper for 0–10
+            _q_label(label, None)
             c1, c2 = st.columns([1,3])
             with c1:
                 skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
@@ -582,7 +650,7 @@ elif page_name == "Review & Results":
         if f3: st.caption(f"Layer 3 expected features: {f3}")
 
     probs = {"layer1": p1, "layer2": p2, "layer3": p3}
-    p_final, renorm_w, missing_layers = blend_probs(W, probs)
+    p_final, renorm_w, _ = blend_probs(W, probs)
     risk_cat, advice = categorize(p_final if p_final is not None else float("nan"))
 
     c1, c2, c3 = st.columns(3)
@@ -626,7 +694,7 @@ elif page_name == "Review & Results":
             p1=p1, p2=p2, p3=p3,
             used_layers=used_layers
         )
-        st.success(f"Result saved with id `{rid}` → {RESULTS_CSV}")
+        st.success(f"Result saved (id `{rid}`) → local CSV and Google Sheets.")
 
 # Sign-Ups (public list)
 elif page_name == "Sign-Ups":
@@ -643,8 +711,10 @@ elif page_name == "Sign-Ups":
             df_disp = df_disp.sort_values("__sort", ascending=False).drop(columns="__sort")
         except Exception:
             pass
-        st.dataframe(df_disp[["name","address","created_at_local","created_at_utc","user_id"]], use_container_width=True, hide_index=True)
+        st.dataframe(df_disp[["name","address","created_at_local","created_at_utc","user_id"]],
+                     use_container_width=True, hide_index=True)
         try:
-            st.download_button("Download users.csv", data=USERS_CSV.read_bytes(), file_name="users.csv", mime="text/csv")
+            st.download_button("Download users.csv", data=USERS_CSV.read_bytes(),
+                               file_name="users.csv", mime="text/csv")
         except Exception:
             st.warning("Could not read users.csv for download.")
