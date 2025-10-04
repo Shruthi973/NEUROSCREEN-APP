@@ -1,7 +1,7 @@
 # app.py — NeuroScreen multi-layer PD risk tool
-# Run:  streamlit run app.py
+# Run locally:  streamlit run app.py
 
-import os, io, json, math, re
+import os, io, json, math
 from pathlib import Path
 from typing import Dict, Any, Tuple, Optional, List
 
@@ -43,7 +43,7 @@ HERO_CSS = """
 """
 st.markdown(HERO_CSS, unsafe_allow_html=True)
 
-# --------------------- App config ---------------------
+# --------------------- Models -------------------------
 MODEL_L1 = "model_layer1.pkl"
 MODEL_L2 = "model_layer2_ppmi.pkl"
 MODEL_L3 = "model_layer3.pkl"
@@ -52,7 +52,7 @@ MODEL_L3 = "model_layer3.pkl"
 W = {"layer1": 0.2, "layer2": 0.4, "layer3": 0.4}
 LOW_THR, HIGH_THR = 0.33, 0.66
 
-# --------------------- Data storage (local, durable) -------------------
+# --------------------- Local data folder (fallback) ---
 DATA_DIR = Path(os.environ.get("NEURO_DATA_DIR", str(Path.home() / ".neuroscreen_data")))
 USERS_CSV = DATA_DIR / "users.csv"
 RESULTS_CSV = DATA_DIR / "results.csv"
@@ -77,7 +77,73 @@ def _normalize(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
             df[c] = "" if c not in ("final_prob","layer1_prob","layer2_prob","layer3_prob") else np.nan
     return df[cols]
 
+# --------------------- Google Sheets helpers ----------
+USE_SHEETS = False
+GS_USERS_TAB = "users"
+GS_RESULTS_TAB = "results"
+
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+    # secrets: SERVICE_ACCOUNT_JSON (full JSON), GSHEET_URL, GSHEET_USERS_TAB, GSHEET_RESULTS_TAB
+    if "SERVICE_ACCOUNT_JSON" in st.secrets and "GSHEET_URL" in st.secrets:
+        svc_info = json.loads(st.secrets["SERVICE_ACCOUNT_JSON"])
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds = Credentials.from_service_account_info(svc_info, scopes=scopes)
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_url(st.secrets["GSHEET_URL"])
+        GS_USERS_TAB = st.secrets.get("GSHEET_USERS_TAB", GS_USERS_TAB)
+        GS_RESULTS_TAB = st.secrets.get("GSHEET_RESULTS_TAB", GS_RESULTS_TAB)
+        USE_SHEETS = True
+
+        def _ensure_worksheet(title: str, header: List[str]):
+            try:
+                ws = sh.worksheet(title)
+            except gspread.WorksheetNotFound:
+                ws = sh.add_worksheet(title=title, rows="1000", cols=str(max(5, len(header))))
+                ws.append_row(header)
+            # if empty, ensure header row exists
+            if ws.row_count == 1 and not ws.get_values("A1:A1"):
+                ws.append_row(header)
+            return ws
+
+        def _append_dict(title: str, header: List[str], row_dict: Dict[str, Any]):
+            ws = _ensure_worksheet(title, header)
+            row = [row_dict.get(h, "") for h in header]
+            ws.append_row(row, value_input_option="RAW")
+
+        def _read_all(title: str, header: List[str]) -> pd.DataFrame:
+            ws = _ensure_worksheet(title, header)
+            values = ws.get_all_values()
+            if not values:
+                return pd.DataFrame(columns=header)
+            # ensure header first row
+            if values[0] != header:
+                # try to align by header names if the sheet already had data
+                data_rows = values[1:] if len(values) > 1 else []
+                df = pd.DataFrame(data_rows, columns=values[0])
+                for c in header:
+                    if c not in df.columns:
+                        df[c] = ""
+                return df[header]
+            data_rows = values[1:] if len(values) > 1 else []
+            return pd.DataFrame(data_rows, columns=header)
+    else:
+        USE_SHEETS = False
+except Exception:
+    USE_SHEETS = False
+
+# --------------------- Data IO (Sheet or CSV) ---------
 def load_users() -> pd.DataFrame:
+    if USE_SHEETS:
+        try:
+            df = _read_all(GS_USERS_TAB, USER_COLS)
+            return _normalize(df, USER_COLS)
+        except Exception:
+            pass
     _ensure_data_files()
     try:
         return _normalize(pd.read_csv(USERS_CSV), USER_COLS)
@@ -85,100 +151,51 @@ def load_users() -> pd.DataFrame:
         return pd.DataFrame(columns=USER_COLS)
 
 def load_results() -> pd.DataFrame:
+    if USE_SHEETS:
+        try:
+            df = _read_all(GS_RESULTS_TAB, RESULT_COLS)
+            # convert numeric columns if possible
+            for c in ["final_prob","layer1_prob","layer2_prob","layer3_prob"]:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            return _normalize(df, RESULT_COLS)
+        except Exception:
+            pass
     _ensure_data_files()
     try:
         return _normalize(pd.read_csv(RESULTS_CSV), RESULT_COLS)
     except Exception:
         return pd.DataFrame(columns=RESULT_COLS)
 
-# --------------------- Google Sheets helpers (optional) -------------------
-def _extract_sheet_key(url_or_key: str) -> str:
-    m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", str(url_or_key))
-    return m.group(1) if m else str(url_or_key).strip()
-
-@st.cache_resource(show_spinner=False)
-def _gsheets_handle():
-    """Return (client, spreadsheet) or (None, None) if not configured."""
-    try:
-        import gspread
-        from google.oauth2.service_account import Credentials
-    except Exception:
-        return None, None
-    try:
-        svc = st.secrets.get("gcp_service_account", None)
-        if not svc:
-            return None, None
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        creds = Credentials.from_service_account_info(svc, scopes=scopes)
-        client = gspread.authorize(creds)
-        sheet_key = st.secrets.get("GSHEET_ID") or _extract_sheet_key(st.secrets.get("GSHEET_URL", ""))
-        if not sheet_key:
-            return None, None
-        sh = client.open_by_key(sheet_key)
-        return client, sh
-    except Exception:
-        return None, None
-
-def _get_ws(sh, title: str, headers: List[str]):
-    """Get/create worksheet with headers."""
-    try:
-        ws = sh.worksheet(title)
-    except Exception:
-        ws = sh.add_worksheet(title=title, rows=1000, cols=max(10, len(headers)))
-        ws.append_row(headers)
-        return ws
-    # ensure header row exists/has same order
-    try:
-        first = ws.row_values(1)
-        if first != headers:
-            # replace headers safely
-            ws.delete_rows(1)
-            ws.insert_row(headers, 1)
-    except Exception:
-        pass
-    return ws
-
-def _append_to_gsheets(tab: str, row: Dict[str, Any], headers: List[str]):
-    client, sh = _gsheets_handle()
-    if not sh:
-        return False, "Sheets not configured"
-    try:
-        ws = _get_ws(sh, tab, headers)
-        values = [row.get(h, "") for h in headers]
-        ws.append_row(values, value_input_option="RAW")
-        return True, "ok"
-    except Exception as e:
-        return False, f"append failed: {e}"
-
-GSHEET_USERS_TAB   = st.secrets.get("GSHEET_USERS_TAB", "users")
-GSHEET_RESULTS_TAB = st.secrets.get("GSHEET_RESULTS_TAB", "results")
-
-# --------------------- Save rows (local + Google Sheets) -------------------
 def save_user(name: str, address: str) -> str:
-    _ensure_data_files()
     uid = datetime.now().strftime("%y%m%d%H%M%S%f")[-10:]
     now_utc = datetime.now(timezone.utc).isoformat(timespec="seconds")
     now_loc = datetime.now().astimezone().isoformat(timespec="seconds")
     row = {"user_id": uid, "name": name.strip(), "address": address.strip(),
            "created_at_utc": now_utc, "created_at_local": now_loc}
 
-    # local CSV
-    df = load_users()
-    df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-    df.to_csv(USERS_CSV, index=False)
+    # Sheets first (if enabled)
+    if USE_SHEETS:
+        try:
+            _append_dict(GS_USERS_TAB, USER_COLS, row)
+        except Exception as e:
+            st.warning(f"Sheets write failed; saved locally instead. ({e})")
+            _ensure_data_files()
+            df = load_users()
+            df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+            df.to_csv(USERS_CSV, index=False)
+    else:
+        _ensure_data_files()
+        df = load_users()
+        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+        df.to_csv(USERS_CSV, index=False)
 
-    # Google Sheets (best-effort)
-    _append_to_gsheets(GSHEET_USERS_TAB, row, USER_COLS)
     return uid
 
 def save_result(user_id: str, name: str, address: str,
                 final_prob: Optional[float], risk_category: str,
                 p1: Optional[float], p2: Optional[float], p3: Optional[float],
                 used_layers: List[str]) -> str:
-    _ensure_data_files()
     rid = datetime.now().strftime("%y%m%d%H%M%S%f")
     now_utc = datetime.now(timezone.utc).isoformat(timespec="seconds")
     now_loc = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -187,27 +204,36 @@ def save_result(user_id: str, name: str, address: str,
         "user_id": user_id or "",
         "name": (name or "").strip(),
         "address": (address or "").strip(),
-        "final_prob": (None if final_prob is None else float(final_prob)),
+        "final_prob": ("" if final_prob is None else float(final_prob)),
         "risk_category": risk_category,
-        "layer1_prob": (None if p1 is None else float(p1)),
-        "layer2_prob": (None if p2 is None else float(p2)),
-        "layer3_prob": (None if p3 is None else float(p3)),
+        "layer1_prob": ("" if p1 is None else float(p1)),
+        "layer2_prob": ("" if p2 is None else float(p2)),
+        "layer3_prob": ("" if p3 is None else float(p3)),
         "used_layers": ",".join(used_layers) if used_layers else "",
         "created_at_utc": now_utc,
         "created_at_local": now_loc,
     }
 
-    # local CSV
-    df = load_results()
-    df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-    df.to_csv(RESULTS_CSV, index=False)
+    if USE_SHEETS:
+        try:
+            _append_dict(GS_RESULTS_TAB, RESULT_COLS, row)
+        except Exception as e:
+            st.warning(f"Sheets write failed; saved locally instead. ({e})")
+            _ensure_data_files()
+            df = load_results()
+            df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+            df.to_csv(RESULTS_CSV, index=False)
+    else:
+        _ensure_data_files()
+        df = load_results()
+        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+        df.to_csv(RESULTS_CSV, index=False)
 
-    # Google Sheets (best-effort)
-    _append_to_gsheets(GSHEET_RESULTS_TAB, row, RESULT_COLS)
     return rid
 
-# --------------------- UI helpers -------------------
+# --------------------- UI Helpers ---------------------
 def _q_label(label: str, desc: Optional[str]):
+    """Render big bold label with helper in parentheses."""
     help_part = f" ({desc})" if desc else ""
     st.markdown(f"<div class='q-label'><strong>{label}</strong>{help_part}</div>", unsafe_allow_html=True)
 
@@ -253,7 +279,7 @@ def number_with_skip(label: str, key: str, placeholder: str="", desc: str=None) 
 def section_scale_hint():
     st.caption("Scale: 0=None, 1=Slight, 2=Mild, 3=Moderate, 4=Severe. Use 'Prefer not to answer' if unsure.")
 
-# --------------------- Model helpers ----------------
+# --------------------- Model helpers ------------------
 def unwrap_model(obj):
     if isinstance(obj, dict) and "pipeline" in obj:
         return obj["pipeline"], obj.get("features")
@@ -328,8 +354,8 @@ if "user_id" not in st.session_state: st.session_state.user_id = ""
 if "user_name" not in st.session_state: st.session_state.user_name = ""
 if "user_addr" not in st.session_state: st.session_state.user_addr = ""
 
-#--------------------------------
-SHOW_SIGNUPS_PAGE = False  # toggle page in nav if you want it visible later
+# Show/hide Sign-Ups page
+SHOW_SIGNUPS_PAGE = False
 
 # --------------------- Pages --------------------------
 PAGES = [
@@ -343,11 +369,6 @@ PAGES = [
     "Memory & Anxiety",
     "Review & Results",
 ] + (["Sign-Ups"] if SHOW_SIGNUPS_PAGE else [])
-
-def goto(i):
-    i = int(np.clip(i, 0, len(PAGES)-1))
-    st.session_state.page = i
-    st.session_state["nav_force_sync"] = True
 
 def goto_index(i: int):
     i = int(np.clip(i, 0, len(PAGES) - 1))
@@ -372,19 +393,20 @@ def _sync_page_from_radio(): st.session_state.page = PAGES.index(st.session_stat
 st.sidebar.title("NeuroScreen")
 st.sidebar.subheader("Navigate")
 
+# Sign-up count (Sheets if available; else CSV)
 try:
-    _ensure_data_files()
-    _cnt = len(load_users())
+    if USE_SHEETS:
+        df_users = load_users()
+        _cnt = len(df_users)
+    else:
+        _ensure_data_files()
+        _cnt = len(load_users())
 except Exception:
     _cnt = 0
 st.sidebar.metric("Sign-ups", _cnt)
 
 st.sidebar.radio("Pages", PAGES, key="nav_radio", index=st.session_state.page, on_change=_sync_page_from_radio)
-st.sidebar.caption(f"Data folder: {DATA_DIR}")
-
-# Sheets status hint (optional)
-_, _sh = _gsheets_handle()
-st.sidebar.caption("Sheets: " + ("connected" if _sh else "not configured"))
+st.sidebar.caption(f"Storage: {'Google Sheets' if USE_SHEETS else str(DATA_DIR)}")
 
 # --------------------- Header -------------------------
 LOCAL_HEADER = Path("PIC.png")
@@ -407,14 +429,14 @@ st.session_state.agree = st.checkbox("I Agree", value=st.session_state.agree)
 st.markdown(f"**Progress:** {' > '.join(PAGES)}")
 
 A = st.session_state.answers
-page_name = PAGES[st.session_state.page]
+page = st.session_state.page
+page_name = PAGES[page]
 
 # --------------------- Pages --------------------------
 # Sign Up
 if page_name == "Sign Up":
     st.header("Create a simple account")
-    st.caption("We record your name, address, and access time.")
-    _ensure_data_files()
+    st.caption("We record your name, address, and access time. Everyone who continues is counted.")
 
     with st.form("signup_form", clear_on_submit=False):
         name = st.text_input("Name", key="signup_name", placeholder="e.g., Alex Johnson")
@@ -438,6 +460,7 @@ if page_name == "Sign Up":
             st.success(f"Thanks for signing up, **{name}**! Your ID is `{uid}`.")
             st.rerun()
 
+    # Next auto-signs up if needed (so everyone is counted)
     if nextp:
         if st.session_state.user_id:
             go_next()
@@ -454,7 +477,7 @@ if page_name == "Sign Up":
 # Consent
 elif page_name == "Consent":
     st.header("Consent")
-    st.info("Please confirm consent to proceed. You can still browse, but 'Compute risk' requires consent.")
+    st.info("Please confirm consent to proceed. You can still browse, but 'Finish & Save Result' requires consent.")
     with st.form("form0"):
         c1, c2 = st.columns([1,1])
         with c1: back = st.form_submit_button("Back", use_container_width=True)
@@ -650,7 +673,7 @@ elif page_name == "Review & Results":
         if f3: st.caption(f"Layer 3 expected features: {f3}")
 
     probs = {"layer1": p1, "layer2": p2, "layer3": p3}
-    p_final, renorm_w, _ = blend_probs(W, probs)
+    p_final, renorm_w, missing_layers = blend_probs(W, probs)
     risk_cat, advice = categorize(p_final if p_final is not None else float("nan"))
 
     c1, c2, c3 = st.columns(3)
@@ -694,12 +717,11 @@ elif page_name == "Review & Results":
             p1=p1, p2=p2, p3=p3,
             used_layers=used_layers
         )
-        st.success(f"Result saved (id `{rid}`) → local CSV and Google Sheets.")
+        st.success(f"Result saved with id `{rid}` → {'Google Sheets' if USE_SHEETS else RESULTS_CSV}")
 
 # Sign-Ups (public list)
 elif page_name == "Sign-Ups":
     st.header("All Sign-Ups")
-    _ensure_data_files()
     df = load_users()
     if df.empty:
         st.info("No sign-ups yet.")
@@ -713,8 +735,9 @@ elif page_name == "Sign-Ups":
             pass
         st.dataframe(df_disp[["name","address","created_at_local","created_at_utc","user_id"]],
                      use_container_width=True, hide_index=True)
-        try:
-            st.download_button("Download users.csv", data=USERS_CSV.read_bytes(),
-                               file_name="users.csv", mime="text/csv")
-        except Exception:
-            st.warning("Could not read users.csv for download.")
+        if not USE_SHEETS:
+            try:
+                st.download_button("Download users.csv", data=USERS_CSV.read_bytes(),
+                                   file_name="users.csv", mime="text/csv")
+            except Exception:
+                st.warning("Could not read users.csv for download.")
