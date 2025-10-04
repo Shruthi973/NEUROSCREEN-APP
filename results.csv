@@ -1,0 +1,2 @@
+result_id,user_id,name,address,final_prob,risk_category,layer1_prob,layer2_prob,layer3_prob,used_layers,created_at_utc,created_at_local
+251004114509330368,4306093053,Vishal reddy,Ireland,0.7634486520416787,high,0.008216686457301704,0.9998898236618707,0.9046234632136748,"layer1,layer2,layer3",2025-10-04T16:45:09+00:00,2025-10-04T11:45:09-05:00
