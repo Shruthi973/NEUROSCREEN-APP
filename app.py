@@ -122,7 +122,6 @@ try:
                 return pd.DataFrame(columns=header)
             # ensure header first row
             if values[0] != header:
-                # try to align by header names if the sheet already had data
                 data_rows = values[1:] if len(values) > 1 else []
                 df = pd.DataFrame(data_rows, columns=values[0])
                 for c in header:
@@ -243,21 +242,21 @@ def likert_with_skip(label: str, key: str, desc: str=None, help_text: Optional[s
     skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
     if skip:
         st.caption("↳ Skipped (blank for the model)")
-        st.session_state[key] = None
+        # Do not mutate widget keys in session_state inside forms
         return None
     return int(val)
 
 def number_with_skip(label: str, key: str, placeholder: str="", desc: str=None) -> Optional[float]:
     _q_label(label, desc)
-    txt = st.text_input(" ", key=key, placeholder=placeholder, label_visibility="collapsed").strip()
+    txt = st.text_input(" ", key=key, placeholder=placeholder, label_visibility="collapsed")
     skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
     if skip:
         st.caption("↳ Skipped (blank for the model)")
-        st.session_state[key] = None
         return None
-    if txt == "": return None
+    if (txt or "").strip() == "":
+        return None
     try:
-        return float(txt)
+        return float((txt or "").strip())
     except ValueError:
         st.warning("Please enter a number (or check 'Prefer not to answer').")
         return None
@@ -275,7 +274,6 @@ def sex_radio(key: str, desc: str=None) -> Optional[int]:
     if choice == "Male": return 1
     if choice == "Female": return 0
     return None
-
 
 def section_scale_hint():
     st.caption("Scale: 0=None, 1=Slight, 2=Mild, 3=Moderate, 4=Severe. Use 'Prefer not to answer' if unsure.")
@@ -633,15 +631,9 @@ elif page_name == "Memory & Anxiety":
 
         st.subheader("Short protocol items")
         def zero_ten_with_skip(label, key):
-            c1, c2 = st.columns([1,3])
-            with c1:
-                skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
-            if skip:
-                A[key] = None
-                st.caption("↳ Skipped (blank for the model)")
-                return
             v = st.slider(label, 0, 10, 0, key=key)
-            A[key] = int(v)
+            skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
+            A[key] = (None if skip else int(v))
 
         zero_ten_with_skip("Anxiety score (0–10)", "anxiety_score")
         zero_ten_with_skip("Conscious movement score (0–10)", "conscious_movement_score")
@@ -663,68 +655,19 @@ elif page_name == "Memory & Anxiety":
         A["WRTSMLR_OL"] = likert_with_skip("Handwriting smaller — severity","WRTSMLR_OL")
         A["DFCLTYTYPE_OL"] = likert_with_skip("Difficulty typing — severity","DFCLTYTYPE_OL")
 
-        # --- Buttons (all are submit buttons) ---
+        # --- Buttons (all inside the form) ---
         c1, c2, c3 = st.columns([1,1,1])
-        with c1:
-            back = st.form_submit_button("Back", use_container_width=True)
-        with c2:
-            save = st.form_submit_button("Save answers", use_container_width=True)
-        with c3:
-            nextp = st.form_submit_button("Next", use_container_width=True)
+        with c1: back = st.form_submit_button("Back", use_container_width=True)
+        with c2: save = st.form_submit_button("Save answers", use_container_width=True)
+        with c3: nextp = st.form_submit_button("Next", use_container_width=True)
 
-    # --- Handlers (outside the form) ---
+    # Handlers
     if back:
         go_back()
     elif nextp:
         go_next()
     elif save:
         st.success("Answers saved on this page.")
-
-
-        # --- Short protocol items ---
-        st.subheader("Short protocol items")
-        def zero_ten_with_skip(label, key):
-            _q_label(label, None)  # big bold label (no helper text here)
-            col_s, col_skip = st.columns([4, 1])
-            with col_s:
-                v = st.slider(" ", 0, 10, 0, key=key, label_visibility="collapsed")
-            with col_skip:
-                skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
-            A[key] = (None if skip else int(v))
-
-        zero_ten_with_skip("Anxiety score (0–10)", "anxiety_score")
-        zero_ten_with_skip("Conscious movement score (0–10)", "conscious_movement_score")
-
-        A["cdte"] = yesno_with_skip(
-            "Clock-drawing done today?",
-            "cdte",
-            desc="Draw an analog clock showing 10 past 11; choose ‘Yes’ if performed now."
-        )
-        A["cogdt"] = yesno_with_skip(
-            "Orientation item done today (date & location)?",
-            "cogdt",
-            desc="Answer a quick date and location question today, if done."
-        )
-
-        # --- Fine motor / function ---
-        st.subheader("Fine motor / function")
-        A["TRBBUTTN_OL"] = likert_with_skip("Buttons/clasps difficult — severity", "TRBBUTTN_OL")
-        A["TRBUPCHR_OL"] = likert_with_skip("Trouble using phone/computer — severity", "TRBUPCHR_OL")
-        A["WRTSMLR_OL"] = likert_with_skip("Handwriting smaller — severity", "WRTSMLR_OL")
-        A["DFCLTYTYPE_OL"] = likert_with_skip("Difficulty typing — severity", "DFCLTYTYPE_OL")
-
-        # ✅ ALWAYS include submit buttons inside the form
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            back = st.form_submit_button("Back", use_container_width=True)
-        with c2:
-            nextp = st.form_submit_button("Next", use_container_width=True)
-
-    if back:
-        go_back()
-    if nextp:
-        go_next()
-
 
 # Review & Results
 elif page_name == "Review & Results":
