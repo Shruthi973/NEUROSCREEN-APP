@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 import joblib
 from datetime import datetime, timezone
+from PIL import Image
 
 # --------------------- PAGE CONFIG ---------------------
 st.set_page_config(
@@ -36,6 +37,8 @@ HERO_CSS = """
   border-radius: 18px; padding: 18px; background: var(--secondary-background-color,#131A2A);
   border: 1px solid rgba(255,255,255,.06); box-shadow: 0 8px 24px rgba(0,0,0,.25);
 }
+/* NEW: bigger bold question label */
+.q-label{font-size:20px;font-weight:700;margin:10px 0 6px 0}
 </style>
 """
 st.markdown(HERO_CSS, unsafe_allow_html=True)
@@ -50,7 +53,9 @@ W = {"layer1": 0.2, "layer2": 0.4, "layer3": 0.4}
 LOW_THR, HIGH_THR = 0.33, 0.66
 
 # --------------------- Data storage -------------------
-DATA_DIR = Path("data")
+# Persist to a stable folder in your home directory (or use NEURO_DATA_DIR if set)
+DATA_DIR = Path(os.environ.get("NEURO_DATA_DIR", str(Path.home() / ".neuroscreen_data")))
+
 USERS_CSV = DATA_DIR / "users.csv"
 RESULTS_CSV = DATA_DIR / "results.csv"
 
@@ -129,9 +134,14 @@ def save_result(user_id: str, name: str, address: str,
     return rid
 
 # --------------------- Helpers (UI) -------------------
+def _q_label(label: str, desc: Optional[str]):
+    """Render big bold label with helper in parentheses."""
+    help_part = f" ({desc})" if desc else ""
+    st.markdown(f"<div class='q-label'><strong>{label}</strong>{help_part}</div>", unsafe_allow_html=True)
+
 def likert_with_skip(label: str, key: str, desc: str=None, help_text: Optional[str]=None) -> Optional[int]:
-    val = st.slider(label, 0, 4, 0, key=key, help=help_text)
-    if desc: st.caption(desc)
+    _q_label(label, desc)
+    val = st.slider(" ", 0, 4, 0, key=key, help=help_text, label_visibility="collapsed")
     skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
     if skip:
         st.caption("↳ Skipped (blank for the model)")
@@ -140,22 +150,22 @@ def likert_with_skip(label: str, key: str, desc: str=None, help_text: Optional[s
     return int(val)
 
 def yesno_with_skip(label: str, key: str, desc: str=None, help_text: Optional[str]=None) -> Optional[int]:
-    choice = st.radio(label, ["Yes","No","Prefer not to answer"], key=key, horizontal=True, help=help_text)
-    if desc: st.caption(desc)
+    _q_label(label, desc)
+    choice = st.radio(" ", ["Yes","No","Prefer not to answer"], key=key, horizontal=True, help=help_text, label_visibility="collapsed")
     if choice == "Yes": return 1
     if choice == "No":  return 0
     return None
 
 def sex_radio(key: str, desc: str=None) -> Optional[int]:
-    choice = st.radio("Sex", ["Male","Female","Prefer not to answer"], key=key, horizontal=True)
-    if desc: st.caption(desc)
+    _q_label("Sex", desc)
+    choice = st.radio(" ", ["Male","Female","Prefer not to answer"], key=key, horizontal=True, label_visibility="collapsed")
     if choice == "Male": return 1
     if choice == "Female": return 0
     return None
 
 def number_with_skip(label: str, key: str, placeholder: str="", desc: str=None) -> Optional[float]:
-    txt = st.text_input(label, key=key, placeholder=placeholder).strip()
-    if desc: st.caption(desc)
+    _q_label(label, desc)
+    txt = st.text_input(" ", key=key, placeholder=placeholder, label_visibility="collapsed").strip()
     skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
     if skip:
         st.caption("↳ Skipped (blank for the model)")
@@ -246,6 +256,10 @@ if "user_id" not in st.session_state: st.session_state.user_id = ""
 if "user_name" not in st.session_state: st.session_state.user_name = ""
 if "user_addr" not in st.session_state: st.session_state.user_addr = ""
 
+#--------------------------------
+# ---- show/hide the Sign-Ups page ----
+SHOW_SIGNUPS_PAGE = False  # set True if you want it back later
+
 # --------------------- Pages --------------------------
 PAGES = [
     "Sign Up",
@@ -257,15 +271,15 @@ PAGES = [
     "Fatigue & Dizziness",
     "Memory & Anxiety",
     "Review & Results",
-    "Sign-Ups",   # List all sign-ups (public)
-]
+] + (["Sign-Ups"] if SHOW_SIGNUPS_PAGE else [])
+
 
 def goto(i):
     i = int(np.clip(i, 0, len(PAGES)-1))
     st.session_state.page = i
     st.session_state["nav_force_sync"] = True
 
-# --- NEW: single-click navigation helpers (no logic change) ---
+# --- single-click navigation helpers ---
 def goto_index(i: int):
     i = int(np.clip(i, 0, len(PAGES) - 1))
     st.session_state.page = i
@@ -289,7 +303,7 @@ def _sync_page_from_radio(): st.session_state.page = PAGES.index(st.session_stat
 st.sidebar.title("NeuroScreen")
 st.sidebar.subheader("Navigate")
 
-# Always show sign-up count (no secrets needed)
+# Always show sign-up count
 try:
     _ensure_data_files()
     _cnt = len(load_users())
@@ -298,9 +312,10 @@ except Exception:
 st.sidebar.metric("Sign-ups", _cnt)
 
 st.sidebar.radio("Pages", PAGES, key="nav_radio", index=st.session_state.page, on_change=_sync_page_from_radio)
+# Optional: show where data is stored
+st.sidebar.caption(f"Data folder: {DATA_DIR}")
 
 # --------------------- Header -------------------------
-from PIL import Image
 LOCAL_HEADER = Path("PIC.png")
 if LOCAL_HEADER.exists():
     img = Image.open(LOCAL_HEADER); st.image(img, use_column_width=True)
@@ -325,19 +340,6 @@ A = st.session_state.answers
 page = st.session_state.page
 page_name = PAGES[page]
 
-# --------------------- Navigation buttons helper ------
-def nav_buttons():
-    idx = st.session_state.page
-    nm = PAGES[idx]
-    c1, c2 = st.columns([1,1])
-    with c1:
-        if st.button("Back", use_container_width=True):
-            goto(idx - 1)
-    with c2:
-        require_consent = (nm == "Consent")
-        if st.button("Next", disabled=(require_consent and not st.session_state.agree), use_container_width=True):
-            goto(idx + 1)
-
 # --------------------- Pages --------------------------
 # Sign Up
 if page_name == "Sign Up":
@@ -348,7 +350,6 @@ if page_name == "Sign Up":
     with st.form("signup_form", clear_on_submit=False):
         name = st.text_input("Name", key="signup_name", placeholder="e.g., Alex Johnson")
         address = st.text_input("Address (City/State or any label)", key="signup_addr", placeholder="e.g., St. Louis, MO")
-        # Password is optional and not stored (to keep this simple and demo-friendly)
         st.caption("Password field omitted — sign-ups are counted without authentication.")
         c1, c2, c3 = st.columns([1,1,1])
         with c1: back = st.form_submit_button("Back", use_container_width=True)
@@ -356,6 +357,7 @@ if page_name == "Sign Up":
         with c3: nextp = st.form_submit_button("Next → Consent", use_container_width=True)
 
     if back: go_back()
+
     if submit:
         if not name.strip() or not address.strip():
             st.error("Please enter both your name and address.")
@@ -366,7 +368,20 @@ if page_name == "Sign Up":
             st.session_state.user_addr = address.strip()
             st.success(f"Thanks for signing up, **{name}**! Your ID is `{uid}`.")
             st.rerun()  # refresh side count immediately
-    if nextp: go_next()
+
+    # NEW: Next auto-signs up if needed (so everyone is counted)
+    if nextp:
+        if st.session_state.user_id:
+            go_next()
+        elif name.strip() and address.strip():
+            uid = save_user(name=name, address=address)
+            st.session_state.user_id = uid
+            st.session_state.user_name = name.strip()
+            st.session_state.user_addr = address.strip()
+            st.success(f"Signed up and continuing. ID `{uid}`.")
+            go_next()
+        else:
+            st.error("Please enter Name and Address (or click Sign Up) before continuing.")
 
 # Consent
 elif page_name == "Consent":
@@ -507,12 +522,13 @@ elif page_name == "Memory & Anxiety":
                                            desc="Misplacing items, repeating questions, or forgetting recent events.")
         st.subheader("Short protocol items")
         def zero_ten_with_skip(label, key):
+            _q_label(label, None)  # keep big label, no helper for 0–10
             c1, c2 = st.columns([1,3])
             with c1:
                 skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
             if skip:
                 A[key] = None; st.caption("↳ Skipped (blank for the model)"); return
-            v = st.slider(label, 0, 10, 0, key=key); A[key] = int(v)
+            v = st.slider(" ", 0, 10, 0, key=key, label_visibility="collapsed"); A[key] = int(v)
         zero_ten_with_skip("Anxiety score (0–10)", "anxiety_score")
         zero_ten_with_skip("Conscious movement score (0–10)", "conscious_movement_score")
         A["cdte"] = yesno_with_skip("Clock-drawing done today?","cdte",
@@ -595,7 +611,6 @@ elif page_name == "Review & Results":
     with st.expander("Show raw feature row (debug)"):
         st.dataframe(df_out)
 
-    # Save result to data/results.csv when user clicks Finish
     with st.form("form7"):
         c1, c2 = st.columns([1,1])
         with c1: back = st.form_submit_button("Back", use_container_width=True)
@@ -623,7 +638,6 @@ elif page_name == "Sign-Ups":
     else:
         st.metric("Total sign-ups", len(df))
         df_disp = df.copy()
-        # sort newest first if possible
         try:
             df_disp["__sort"] = pd.to_datetime(df_disp["created_at_utc"], errors="coerce")
             df_disp = df_disp.sort_values("__sort", ascending=False).drop(columns="__sort")
