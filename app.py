@@ -237,15 +237,30 @@ def _q_label(label: str, desc: Optional[str]):
     help_part = f" ({desc})" if desc else ""
     st.markdown(f"<div class='q-label'><strong>{label}</strong>{help_part}</div>", unsafe_allow_html=True)
 
-def likert_with_skip(label: str, key: str, desc: str=None, help_text: Optional[str]=None) -> Optional[int]:
+def likert_with_skip(label, key, desc=None, help_text=None):
     _q_label(label, desc)
-    val = st.slider(" ", 0, 4, 0, key=key, help=help_text, label_visibility="collapsed")
-    skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
-    if skip:
-        st.caption("↳ Skipped (blank for the model)")
-        st.session_state[key] = None
+    col_slider, col_skip = st.columns([4, 1])
+    with col_slider:
+        val = st.slider(" ", 0, 4, 0, key=key, help=help_text, label_visibility="collapsed")
+    with col_skip:
+        skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
+    return None if skip else int(val)
+
+def number_with_skip(label, key, placeholder="", desc=None):
+    _q_label(label, desc)
+    col_inp, col_skip = st.columns([4, 1])
+    with col_inp:
+        txt = st.text_input(" ", key=key, placeholder=placeholder, label_visibility="collapsed").strip()
+    with col_skip:
+        skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
+    if skip or txt == "":
         return None
-    return int(val)
+    try:
+        return float(txt)
+    except ValueError:
+        st.warning("Please enter a number (or check 'Prefer not to answer').")
+        return None
+
 
 def yesno_with_skip(label: str, key: str, desc: str=None, help_text: Optional[str]=None) -> Optional[int]:
     _q_label(label, desc)
@@ -261,20 +276,6 @@ def sex_radio(key: str, desc: str=None) -> Optional[int]:
     if choice == "Female": return 0
     return None
 
-def number_with_skip(label: str, key: str, placeholder: str="", desc: str=None) -> Optional[float]:
-    _q_label(label, desc)
-    txt = st.text_input(" ", key=key, placeholder=placeholder, label_visibility="collapsed").strip()
-    skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
-    if skip:
-        st.caption("↳ Skipped (blank for the model)")
-        st.session_state[key] = None
-        return None
-    if txt == "": return None
-    try:
-        return float(txt)
-    except ValueError:
-        st.warning("Please enter a number (or check 'Prefer not to answer').")
-        return None
 
 def section_scale_hint():
     st.caption("Scale: 0=None, 1=Slight, 2=Mild, 3=Moderate, 4=Severe. Use 'Prefer not to answer' if unsure.")
