@@ -599,43 +599,82 @@ elif page_name == "Fatigue & Dizziness":
 elif page_name == "Memory & Anxiety":
     st.header("Memory & Anxiety")
     section_scale_hint()
+
     with st.form("form6"):
-        A["ImpactThinkMemory"] = likert_with_skip("Memory / word-finding issues — severity","ImpactThinkMemory",
-                                                  desc="Are names, appointments, or common words harder to recall than usual?")
-        A["Anxiety"] = likert_with_skip("Feeling anxious / worried — severity (past 2 weeks)","Anxiety",
-                                        desc="Overall anxiety or worry level over the last two weeks.")
+        # --- Core items ---
+        A["ImpactThinkMemory"] = likert_with_skip(
+            "Memory / word-finding issues — severity",
+            "ImpactThinkMemory",
+            desc="Are names, appointments, or common words harder to recall than usual?"
+        )
+        A["Anxiety"] = likert_with_skip(
+            "Feeling anxious / worried — severity (past 2 weeks)",
+            "Anxiety",
+            desc="Overall anxiety or worry level over the last two weeks."
+        )
+
+        # --- Quick cognitive checks ---
         st.subheader("Quick cognitive checks")
-        A["DIFFRECALL"] = likert_with_skip("Word recall difficulty — severity","DIFFRECALL",
-                                           desc="Say 3 words; after 1 minute, try to recall them.")
-        A["MCAVIGIL"] = likert_with_skip("Sustained attention issues — severity","MCAVIGIL",
-                                         desc="Count backward by 7s for 30 seconds; rate difficulty.")
-        A["MEM_PRESENT"] = yesno_with_skip("Memory problems present (Yes/No)?","MEM_PRESENT",
-                                           desc="Misplacing items, repeating questions, or forgetting recent events.")
+        A["DIFFRECALL"] = likert_with_skip(
+            "Word recall difficulty — severity",
+            "DIFFRECALL",
+            desc="Say 3 words; after 1 minute, try to recall them."
+        )
+        A["MCAVIGIL"] = likert_with_skip(
+            "Sustained attention issues — severity",
+            "MCAVIGIL",
+            desc="Count backward by 7s for 30 seconds; rate difficulty."
+        )
+        A["MEM_PRESENT"] = yesno_with_skip(
+            "Memory problems present (Yes/No)?",
+            "MEM_PRESENT",
+            desc="Misplacing items, repeating questions, or forgetting recent events."
+        )
+
+        # --- Short protocol items ---
         st.subheader("Short protocol items")
         def zero_ten_with_skip(label, key):
-            _q_label(label, None)
-            c1, c2 = st.columns([1,3])
-            with c1:
+            _q_label(label, None)  # big bold label (no helper text here)
+            col_s, col_skip = st.columns([4, 1])
+            with col_s:
+                v = st.slider(" ", 0, 10, 0, key=key, label_visibility="collapsed")
+            with col_skip:
                 skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
-            if skip:
-                A[key] = None; st.caption("↳ Skipped (blank for the model)"); return
-            v = st.slider(" ", 0, 10, 0, key=key, label_visibility="collapsed"); A[key] = int(v)
+            A[key] = (None if skip else int(v))
+
         zero_ten_with_skip("Anxiety score (0–10)", "anxiety_score")
         zero_ten_with_skip("Conscious movement score (0–10)", "conscious_movement_score")
-        A["cdte"] = yesno_with_skip("Clock-drawing done today?","cdte",
-                                    desc="Draw an analog clock showing 10 past 11; choose ‘Yes’ if performed now.")
-        A["cogdt"] = yesno_with_skip("Orientation item done today (date & location)?","cogdt",
-                                     desc="Answer a quick date and location question today, if done.")
+
+        A["cdte"] = yesno_with_skip(
+            "Clock-drawing done today?",
+            "cdte",
+            desc="Draw an analog clock showing 10 past 11; choose ‘Yes’ if performed now."
+        )
+        A["cogdt"] = yesno_with_skip(
+            "Orientation item done today (date & location)?",
+            "cogdt",
+            desc="Answer a quick date and location question today, if done."
+        )
+
+        # --- Fine motor / function ---
         st.subheader("Fine motor / function")
-        A["TRBBUTTN_OL"] = likert_with_skip("Buttons/clasps difficult — severity","TRBBUTTN_OL")
-        A["TRBUPCHR_OL"] = likert_with_skip("Trouble using phone/computer — severity","TRBUPCHR_OL")
-        A["WRTSMLR_OL"] = likert_with_skip("Handwriting smaller — severity","WRTSMLR_OL")
-        A["DFCLTYTYPE_OL"] = likert_with_skip("Difficulty typing — severity","DFCLTYTYPE_OL")
-        c1, c2 = st.columns([1,1])
-        with c1: back = st.form_submit_button("Back", use_container_width=True)
-        with c2: nextp = st.form_submit_button("Next", use_container_width=True)
-    if back: go_back()
-    if nextp: go_next()
+        A["TRBBUTTN_OL"] = likert_with_skip("Buttons/clasps difficult — severity", "TRBBUTTN_OL")
+        A["TRBUPCHR_OL"] = likert_with_skip("Trouble using phone/computer — severity", "TRBUPCHR_OL")
+        A["WRTSMLR_OL"] = likert_with_skip("Handwriting smaller — severity", "WRTSMLR_OL")
+        A["DFCLTYTYPE_OL"] = likert_with_skip("Difficulty typing — severity", "DFCLTYTYPE_OL")
+
+        # ✅ ALWAYS include submit buttons inside the form
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            back = st.form_submit_button("Back", use_container_width=True)
+        with c2:
+            nextp = st.form_submit_button("Next", use_container_width=True)
+
+    if back:
+        go_back()
+    if nextp:
+        go_next()
+
 
 # Review & Results
 elif page_name == "Review & Results":
