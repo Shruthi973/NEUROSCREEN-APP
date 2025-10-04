@@ -435,8 +435,8 @@ page_name = PAGES[page]
 # --------------------- Pages --------------------------
 # Sign Up
 if page_name == "Sign Up":
-    st.header("Create a simple account")
-    st.caption("We record your name, address, and access time. Everyone who continues is counted.")
+    st.header("Create an account")
+    st.caption("Become part of the family")
 
     with st.form("signup_form", clear_on_submit=False):
         name = st.text_input("Name", key="signup_name", placeholder="e.g., Alex Johnson")
