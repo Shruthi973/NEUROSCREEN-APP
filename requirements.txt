@@ -10,3 +10,11 @@ fpdf==1.7.2
 plotly
 streamlit-extras
 streamlit-lottie
+
+# Imaging (you import PIL/Pillow)
+pillow>=10.3.0
+
+# Google Sheets
+gspread>=6.0.0
+google-auth>=2.23.0
+google-auth-oauthlib>=1.2.0
