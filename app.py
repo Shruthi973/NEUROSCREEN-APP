@@ -237,30 +237,30 @@ def _q_label(label: str, desc: Optional[str]):
     help_part = f" ({desc})" if desc else ""
     st.markdown(f"<div class='q-label'><strong>{label}</strong>{help_part}</div>", unsafe_allow_html=True)
 
-def likert_with_skip(label, key, desc=None, help_text=None):
+def likert_with_skip(label: str, key: str, desc: str=None, help_text: Optional[str]=None) -> Optional[int]:
     _q_label(label, desc)
-    col_slider, col_skip = st.columns([4, 1])
-    with col_slider:
-        val = st.slider(" ", 0, 4, 0, key=key, help=help_text, label_visibility="collapsed")
-    with col_skip:
-        skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
-    return None if skip else int(val)
-
-def number_with_skip(label, key, placeholder="", desc=None):
-    _q_label(label, desc)
-    col_inp, col_skip = st.columns([4, 1])
-    with col_inp:
-        txt = st.text_input(" ", key=key, placeholder=placeholder, label_visibility="collapsed").strip()
-    with col_skip:
-        skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
-    if skip or txt == "":
+    val = st.slider(" ", 0, 4, 0, key=key, help=help_text, label_visibility="collapsed")
+    skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
+    if skip:
+        st.caption("↳ Skipped (blank for the model)")
+        st.session_state[key] = None
         return None
+    return int(val)
+
+def number_with_skip(label: str, key: str, placeholder: str="", desc: str=None) -> Optional[float]:
+    _q_label(label, desc)
+    txt = st.text_input(" ", key=key, placeholder=placeholder, label_visibility="collapsed").strip()
+    skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
+    if skip:
+        st.caption("↳ Skipped (blank for the model)")
+        st.session_state[key] = None
+        return None
+    if txt == "": return None
     try:
         return float(txt)
     except ValueError:
         st.warning("Please enter a number (or check 'Prefer not to answer').")
         return None
-
 
 def yesno_with_skip(label: str, key: str, desc: str=None, help_text: Optional[str]=None) -> Optional[int]:
     _q_label(label, desc)
@@ -602,7 +602,7 @@ elif page_name == "Memory & Anxiety":
     section_scale_hint()
 
     with st.form("form6"):
-        # --- Core items ---
+        # --- Questions ---
         A["ImpactThinkMemory"] = likert_with_skip(
             "Memory / word-finding issues — severity",
             "ImpactThinkMemory",
@@ -614,7 +614,6 @@ elif page_name == "Memory & Anxiety":
             desc="Overall anxiety or worry level over the last two weeks."
         )
 
-        # --- Quick cognitive checks ---
         st.subheader("Quick cognitive checks")
         A["DIFFRECALL"] = likert_with_skip(
             "Word recall difficulty — severity",
@@ -631,6 +630,56 @@ elif page_name == "Memory & Anxiety":
             "MEM_PRESENT",
             desc="Misplacing items, repeating questions, or forgetting recent events."
         )
+
+        st.subheader("Short protocol items")
+        def zero_ten_with_skip(label, key):
+            c1, c2 = st.columns([1,3])
+            with c1:
+                skip = st.checkbox("Prefer not to answer", key=f"{key}__skip")
+            if skip:
+                A[key] = None
+                st.caption("↳ Skipped (blank for the model)")
+                return
+            v = st.slider(label, 0, 10, 0, key=key)
+            A[key] = int(v)
+
+        zero_ten_with_skip("Anxiety score (0–10)", "anxiety_score")
+        zero_ten_with_skip("Conscious movement score (0–10)", "conscious_movement_score")
+
+        A["cdte"] = yesno_with_skip(
+            "Clock-drawing done today?",
+            "cdte",
+            desc="Draw an analog clock showing 10 past 11; choose ‘Yes’ if performed now."
+        )
+        A["cogdt"] = yesno_with_skip(
+            "Orientation item done today (date & location)?",
+            "cogdt",
+            desc="Answer a quick date and location question today, if done."
+        )
+
+        st.subheader("Fine motor / function")
+        A["TRBBUTTN_OL"] = likert_with_skip("Buttons/clasps difficult — severity","TRBBUTTN_OL")
+        A["TRBUPCHR_OL"] = likert_with_skip("Trouble using phone/computer — severity","TRBUPCHR_OL")
+        A["WRTSMLR_OL"] = likert_with_skip("Handwriting smaller — severity","WRTSMLR_OL")
+        A["DFCLTYTYPE_OL"] = likert_with_skip("Difficulty typing — severity","DFCLTYTYPE_OL")
+
+        # --- Buttons (all are submit buttons) ---
+        c1, c2, c3 = st.columns([1,1,1])
+        with c1:
+            back = st.form_submit_button("Back", use_container_width=True)
+        with c2:
+            save = st.form_submit_button("Save answers", use_container_width=True)
+        with c3:
+            nextp = st.form_submit_button("Next", use_container_width=True)
+
+    # --- Handlers (outside the form) ---
+    if back:
+        go_back()
+    elif nextp:
+        go_next()
+    elif save:
+        st.success("Answers saved on this page.")
+
 
         # --- Short protocol items ---
         st.subheader("Short protocol items")
